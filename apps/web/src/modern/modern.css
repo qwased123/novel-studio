@@ -1,0 +1,149 @@
+body:has(.modern-library, .modern-workspace, .modern-loading) {
+  min-width: 0;
+  overflow: auto;
+}
+
+.modern-library,
+.modern-workspace,
+.modern-loading { min-height: 100vh; color: #25302a; background: #f5f7f4; }
+.modern-library { font-family: "Noto Sans SC Variable", system-ui, sans-serif; }
+.modern-library-header { height: 72px; display: flex; align-items: center; justify-content: space-between; padding: 0 6vw; border-bottom: 1px solid #dfe5df; background: #fbfcfa; }
+.modern-brand, .modern-sidebar-brand, .modern-local-status, .modern-command, .modern-library-actions, .modern-top-actions, .modern-readonly, .modern-subhead, .modern-sidebar-footer span, .modern-model-meta, .modern-alert, .modern-source-link { display: flex; align-items: center; gap: 8px; }
+.modern-brand-mark { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: #276848; }
+.modern-brand-mark.small { width: 29px; height: 29px; border-radius: 7px; }
+.modern-brand > div, .modern-sidebar-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.modern-brand > div strong { font-size: 15px; letter-spacing: .02em; }
+.modern-brand > div small { color: #87918a; font-size: 10px; }
+.modern-library-actions { gap: 9px; }
+.modern-button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px; border: 1px solid transparent; border-radius: 5px; cursor: pointer; font: inherit; font-size: 12px; }
+.modern-button.solid { color: #fff; background: #276848; }
+.modern-button.solid:hover { background: #1f573b; }
+.modern-button.ghost { color: #415048; border-color: #cbd5cd; background: #fff; }
+.modern-button.ghost:hover { border-color: #276848; color: #276848; }
+.modern-button:disabled { cursor: not-allowed; opacity: .5; }
+.modern-library-content { width: min(1000px, calc(100% - 48px)); margin: 46px auto 80px; }
+.modern-section-head { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 23px; border-bottom: 1px solid #d8e0d9; color: #7c897f; }
+.modern-section-head h1, .modern-pane-head h3, .modern-topbar h2 { margin: 4px 0 0; color: #25302a; font-family: "Noto Serif SC Variable", Georgia, serif; letter-spacing: .01em; }
+.modern-section-head h1 { font-size: 30px; }
+.modern-section-head p, .modern-pane-head p { margin: 7px 0 0; color: #819087; font-size: 12px; }
+.modern-eyebrow { color: #4d8a69; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.modern-project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; padding-top: 20px; }
+.modern-project-card { min-height: 90px; display: grid; grid-template-columns: 47px minmax(0, 1fr) 18px; align-items: center; gap: 12px; padding: 16px; border: 1px solid #dbe3dc; border-radius: 7px; color: #25302a; background: #fff; cursor: pointer; text-align: left; }
+.modern-project-card:hover { border-color: #87ad94; box-shadow: 0 7px 22px rgba(36, 75, 51, .08); }
+.modern-project-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 8px; color: #276848; background: #e6f0e8; }
+.modern-project-card span:nth-child(2), .modern-project-card span:nth-child(2) small { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.modern-project-card strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.modern-project-card small { color: #8a958d; font-size: 10px; }
+.modern-empty { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #9aa59e; font-size: 12px; }
+.modern-empty.large { min-height: 340px; border: 1px dashed #ccd9cf; background: rgba(255,255,255,.45); }
+.modern-empty.large strong { color: #405047; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 17px; }
+.modern-empty.large span { margin-bottom: 6px; font-size: 11px; }
+.modern-spinner { width: 14px; height: 14px; display: inline-block; border: 2px solid #cdd8d0; border-top-color: #276848; border-radius: 50%; animation: modern-spin .7s linear infinite; }
+@keyframes modern-spin { to { transform: rotate(360deg); } }
+.modern-alert { margin-top: 14px; padding: 10px 12px; border-radius: 5px; font-size: 11px; }
+.modern-alert.error { color: #944c43; border: 1px solid #e8c7c2; background: #fff5f3; }
+.modern-modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(29, 40, 33, .42); }
+.modern-modal { width: min(440px, 100%); max-height: calc(100vh - 40px); overflow: auto; padding: 24px; border: 1px solid #d7e0d8; border-radius: 8px; background: #fff; box-shadow: 0 20px 70px rgba(20, 37, 26, .2); }
+.modern-modal.wide { width: min(720px, 100%); }
+.modern-modal header, .modern-modal footer, .modern-pane-head, .modern-preview-head, .modern-detail-head, .modern-agent-card header, .modern-model-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.modern-modal h2 { margin: 6px 0 0; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 22px; }
+.modern-modal header p { margin: 7px 0 0; color: #849088; font-size: 11px; line-height: 1.5; }
+.modern-modal footer { align-items: center; margin-top: 22px; padding-top: 15px; border-top: 1px solid #e1e7e1; }
+.modern-icon-button { width: 31px; height: 31px; display: inline-grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 5px; color: #68766c; background: transparent; cursor: pointer; }
+.modern-icon-button:hover { border-color: #cbd8ce; color: #276848; background: #f5f9f5; }
+.modern-field { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; color: #66746b; font-size: 11px; }
+.modern-field input, .modern-field select, .modern-field textarea, .modern-toolbar select { width: 100%; box-sizing: border-box; min-height: 35px; padding: 7px 9px; border: 1px solid #cfd9d1; border-radius: 5px; outline: none; color: #27332b; background: #fff; font: inherit; font-size: 12px; }
+.modern-field textarea { resize: vertical; line-height: 1.6; }
+.modern-field input:focus, .modern-field select:focus, .modern-field textarea:focus { border-color: #6ba180; box-shadow: 0 0 0 3px rgba(107, 161, 128, .14); }
+.modern-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 12px; }
+
+.modern-workspace { height: 100vh; height: 100dvh; display: flex; overflow: hidden; font-family: "Noto Sans SC Variable", system-ui, sans-serif; }
+.modern-sidebar { width: 248px; flex: 0 0 248px; display: flex; flex-direction: column; color: #d9e3dc; background: #1e2923; }
+.modern-sidebar-brand { min-height: 58px; flex-direction: row; align-items: center; padding: 0 16px; border-bottom: 1px solid rgba(218, 236, 223, .1); color: #f4f8f4; }
+.modern-sidebar-brand strong { font-size: 13px; letter-spacing: .02em; }
+.modern-project-identity { position: relative; padding: 22px 18px 20px; border-bottom: 1px solid rgba(218, 236, 223, .1); }
+.modern-project-identity h1 { max-width: 204px; margin: 8px 0 14px; overflow: hidden; color: #fff; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 19px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.modern-local-status { color: #9db2a2; font-size: 10px; }
+.modern-local-status i { width: 6px; height: 6px; border-radius: 50%; background: #68b780; }
+.modern-nav { display: flex; flex-direction: column; gap: 2px; padding: 13px 9px; }
+.modern-nav button, .modern-session-list button { min-height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 0; border-radius: 5px; color: #aab9ae; background: transparent; cursor: pointer; font: inherit; font-size: 11px; text-align: left; }
+.modern-nav button:hover, .modern-nav button.active, .modern-session-list button:hover, .modern-session-list button.active { color: #fff; background: #34483b; }
+.modern-nav button.active { box-shadow: inset 3px 0 #75b98b; }
+.modern-session-list { margin: 4px 9px 0; padding: 11px 0 0; border-top: 1px solid rgba(218, 236, 223, .1); }
+.modern-subhead { justify-content: space-between; padding: 0 10px 6px; color: #809487; font-size: 10px; }
+.modern-session-list button { width: 100%; min-height: 31px; gap: 8px; padding-left: 12px; color: #96a69a; font-size: 10px; }
+.modern-session-list button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modern-sidebar-footer { margin-top: auto; padding: 15px 18px 18px; border-top: 1px solid rgba(218, 236, 223, .1); color: #90a398; }
+.modern-sidebar-footer span { font-size: 10px; }
+.modern-sidebar-footer small { display: block; margin-top: 5px; color: #6e8275; font-size: 9px; }
+.modern-main { min-width: 0; flex: 1; display: flex; flex-direction: column; background: #fbfcfa; }
+.modern-topbar { min-height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; border-bottom: 1px solid #dde5de; background: #fff; }
+.modern-topbar h2 { font-size: 20px; }
+.modern-top-actions { align-items: center; }
+.modern-command { padding: 6px 9px; border: 1px solid #d5e1d7; border-radius: 999px; color: #4c8061; background: #f2f8f3; font-size: 10px; }
+.modern-pane { min-width: 0; flex: 1; overflow: auto; padding: 34px 38px 70px; }
+.modern-pane-head { align-items: flex-start; padding-bottom: 22px; border-bottom: 1px solid #dbe4dc; }
+.modern-pane-head h3 { font-size: 24px; }
+.modern-readonly { padding: 7px 10px; border: 1px solid #d1e1d4; border-radius: 5px; color: #4d8660; background: #f2f8f3; font-size: 10px; }
+
+.modern-chat-layout { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 285px; }
+.modern-chat { min-width: 0; display: flex; flex-direction: column; }
+.modern-chat-scroll { flex: 1; overflow: auto; padding: 30px clamp(22px, 7vw, 110px) 22px; }
+.modern-chat-empty { max-width: 450px; margin: 12vh auto 0; text-align: center; }
+.modern-chat-orb { width: 48px; height: 48px; display: grid; place-items: center; margin: 0 auto 16px; border-radius: 14px; color: #276848; background: #e5f0e8; }
+.modern-chat-empty h3 { margin: 0; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 22px; }
+.modern-chat-empty p { margin: 10px 0; color: #869189; font-size: 12px; line-height: 1.7; }
+.modern-message { max-width: 760px; margin: 0 auto 22px; }
+.modern-message.user { margin-left: auto; }
+.modern-message-meta { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; color: #6e7c73; font-size: 10px; }
+.modern-message-meta time { color: #a0aaa3; }
+.modern-message-body { padding: 13px 15px; border: 1px solid #dde5df; border-radius: 7px; color: #34423a; background: #fff; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 14px; line-height: 1.85; white-space: pre-wrap; }
+.modern-message.user .modern-message-meta { justify-content: flex-end; }
+.modern-message.user .modern-message-body { border-color: #c5dfcb; color: #254933; background: #eff8f1; }
+.modern-composer { width: min(760px, calc(100% - 44px)); margin: 0 auto 22px; padding: 11px 12px 8px; border: 1px solid #cbd9ce; border-radius: 7px; background: #fff; box-shadow: 0 8px 25px rgba(41, 73, 49, .07); }
+.modern-composer textarea { width: 100%; box-sizing: border-box; min-height: 58px; padding: 4px 2px; border: 0; outline: none; resize: vertical; color: #2d3b32; background: transparent; font: inherit; font-size: 13px; line-height: 1.6; }
+.modern-composer footer { display: flex; align-items: center; justify-content: space-between; color: #9aa59e; font-size: 9px; }
+.modern-send { width: 31px; height: 31px; display: grid; place-items: center; border: 0; border-radius: 5px; color: #fff; background: #276848; cursor: pointer; }
+.modern-send:disabled { cursor: not-allowed; opacity: .45; }
+.modern-inspector { overflow: auto; padding: 25px 18px; border-left: 1px solid #dfe7e0; background: #f5f8f5; }
+.modern-inspector-head { display: flex; align-items: flex-start; justify-content: space-between; padding-bottom: 15px; border-bottom: 1px solid #dce6de; color: #4c7c5c; }
+.modern-inspector-head h3 { margin: 4px 0 0; color: #334339; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 16px; }
+.modern-inspector-loading, .modern-inspector-empty { padding: 18px 0; color: #829188; font-size: 10px; line-height: 1.6; }
+.modern-inspector-loading { display: flex; align-items: center; gap: 7px; }
+.modern-context-list { padding-top: 12px; }
+.modern-context-item { display: flex; align-items: flex-start; gap: 8px; padding: 9px 0; border-bottom: 1px solid #e2eae3; }
+.modern-context-item > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.modern-context-item strong { overflow: hidden; color: #425149; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.modern-context-item small { color: #89968e; font-size: 9px; }
+.modern-layer-dot { width: 7px; height: 7px; flex: 0 0 7px; margin-top: 4px; border-radius: 50%; background: #a9b5ad; }
+.modern-layer-dot.core { background: #b77d38; }.modern-layer-dot.working { background: #4b8a64; }.modern-layer-dot.reference { background: #9da9a1; }
+.modern-task-strip { margin-top: 22px; padding-top: 13px; border-top: 1px solid #dce6de; color: #6e7b72; font-size: 10px; }
+.modern-task-strip > div { display: flex; align-items: center; gap: 6px; margin-top: 9px; }
+.modern-status-dot { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: #a5b1a9; }.modern-status-dot.queued, .modern-status-dot.running { background: #c88f3e; }.modern-status-dot.succeeded { background: #4c9a68; }.modern-status-dot.failed { background: #bf6258; }.modern-status-dot.cancelled { background: #a3ada6; }
+
+.modern-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 13px; }
+.modern-segmented { display: flex; padding: 3px; border: 1px solid #d5dfd7; border-radius: 6px; background: #f1f5f1; }
+.modern-segmented button { min-width: 64px; padding: 6px 10px; border: 0; border-radius: 4px; color: #7b897f; background: transparent; cursor: pointer; font: inherit; font-size: 11px; }.modern-segmented button.active { color: #315e42; background: #fff; box-shadow: 0 1px 4px rgba(48, 78, 55, .12); }
+.modern-toolbar select { width: 130px; min-height: 32px; font-size: 11px; }
+.modern-file-layout, .modern-memory-layout { min-height: 490px; display: grid; grid-template-columns: 320px minmax(0, 1fr); border: 1px solid #dbe4dc; background: #fff; }
+.modern-file-list, .modern-memory-list { border-right: 1px solid #dbe4dc; }
+.modern-file-list button, .modern-memory-list button { width: 100%; min-height: 66px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 15px; align-items: center; gap: 8px; padding: 10px 13px; border: 0; border-bottom: 1px solid #e6ece6; color: #39473e; background: transparent; cursor: pointer; text-align: left; }.modern-file-list button:hover, .modern-file-list button.active, .modern-memory-list button:hover, .modern-memory-list button.active { background: #f1f7f2; }.modern-file-list button > span:nth-child(2), .modern-memory-list button > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; gap: 4px; }.modern-file-list strong, .modern-memory-list strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.modern-file-list small, .modern-memory-list small { overflow: hidden; color: #89968e; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.modern-file-kind { width: 38px; padding: 4px 3px; border-radius: 4px; color: #4e8261; background: #edf6ee; font-size: 9px; text-align: center; }
+.modern-file-preview, .modern-memory-detail { min-width: 0; padding: 22px 24px; }
+.modern-preview-head { align-items: center; padding-bottom: 15px; border-bottom: 1px solid #e2e9e3; }.modern-preview-head h4, .modern-detail-head h4 { margin: 8px 0 0; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 19px; }.modern-file-content { max-height: 530px; overflow: auto; margin: 17px 0 0; color: #46534a; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 13px; line-height: 1.9; white-space: pre-wrap; }.modern-preview-empty, .modern-list-empty { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #a0aba3; font-size: 11px; }.modern-list-empty { min-height: 120px; padding: 20px; text-align: center; }
+.modern-memory-status { width: 9px; height: 9px; justify-self: center; border-radius: 50%; background: #a4b0a7; }.modern-memory-status.formal { background: #4e9a68; }.modern-memory-status.draft { background: #c89040; }.modern-memory-status.archived { background: #9fa9a1; }
+.modern-detail-head { align-items: center; padding-bottom: 16px; border-bottom: 1px solid #e2e9e3; }.modern-priority { padding: 5px 8px; border-radius: 4px; color: #69776e; background: #f0f4f0; font-size: 10px; }.modern-memory-block { margin-top: 18px; }.modern-memory-block > span { color: #7b897f; font-size: 10px; }.modern-memory-block p { margin: 8px 0 0; color: #3c4a41; font-size: 12px; line-height: 1.75; white-space: pre-wrap; }.modern-memory-block small { display: block; margin-top: 6px; color: #8d9990; font-size: 10px; }.modern-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }.modern-tags i { padding: 3px 6px; border-radius: 3px; color: #467659; background: #eef6ef; font-size: 9px; font-style: normal; }.modern-source-link { margin-top: 20px; padding-top: 13px; border-top: 1px solid #e3eae3; color: #7f8c82; font-size: 10px; }
+.modern-review-list { max-width: 850px; padding-top: 18px; }.modern-review-card { margin-bottom: 10px; padding: 15px; border: 1px solid #dbe4dc; border-left: 3px solid #c78d41; background: #fff; }.modern-review-card header { display: flex; align-items: center; gap: 9px; color: #66746b; font-size: 10px; }.modern-review-card time { margin-left: auto; color: #a1aba4; }.modern-review-card p { margin: 10px 0 0; color: #4b584f; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }.modern-review-status { padding: 3px 6px; border-radius: 3px; color: #9a6b2d; background: #fff5e4; }.modern-review-status.overridden { color: #6a5d96; background: #f1effa; }.modern-review-status.resolved { color: #38764e; background: #edf7ef; }
+.modern-task-table { margin-top: 20px; border: 1px solid #dbe4dc; background: #fff; }.modern-task-row { min-height: 52px; display: grid; grid-template-columns: 1.2fr 1.2fr .7fr .8fr; align-items: center; gap: 12px; padding: 0 14px; border-top: 1px solid #e6ece6; color: #536057; font-size: 11px; }.modern-task-row.head { min-height: 38px; border-top: 0; color: #859188; background: #f5f8f5; font-size: 10px; }.modern-task-row span:first-child { display: flex; align-items: center; gap: 7px; color: #3f4d44; }.modern-task-row time { color: #97a29a; font-size: 10px; }
+.modern-agent-list { display: grid; grid-template-columns: 1fr; gap: 14px; padding-top: 18px; }.modern-agent-card { padding: 16px; border: 1px solid #dbe4dc; background: #fff; }.modern-agent-card header { align-items: center; }.modern-agent-card header div { display: flex; flex-direction: column; gap: 5px; }.modern-agent-card header strong { font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 15px; }.modern-agent-card header small { color: #87938a; font-size: 10px; }.modern-agent-card footer { display: flex; justify-content: flex-end; margin-top: 13px; }.modern-toggle { width: 34px; height: 20px; position: relative; display: inline-block; }.modern-toggle input { position: absolute; opacity: 0; }.modern-toggle span { position: absolute; inset: 0; border-radius: 10px; background: #cbd3cd; cursor: pointer; }.modern-toggle span::after { width: 16px; height: 16px; position: absolute; top: 2px; left: 2px; border-radius: 50%; content: ""; background: #fff; transition: transform .15s; }.modern-toggle input:checked + span { background: #4b9466; }.modern-toggle input:checked + span::after { transform: translateX(14px); }.modern-toggle input:disabled + span { cursor: not-allowed; opacity: .6; }
+.modern-prompt-blocks { margin-top: 16px; padding: 12px; border: 1px solid #e2e9e3; border-radius: 6px; background: #f8faf8; }.modern-prompt-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: #66746b; font-size: 11px; }.modern-prompt-block-head small { color: #98a39b; font-size: 9px; }.modern-prompt-block { margin-top: 9px; padding: 10px; border: 1px solid #dbe4dc; border-radius: 5px; background: #fff; }.modern-prompt-block.pinned { border-left: 3px solid #c78d41; }.modern-prompt-block.disabled { opacity: .62; }.modern-prompt-block-row { display: grid; grid-template-columns: 34px 18px minmax(130px, 1.4fr) 110px 92px 74px auto; align-items: center; gap: 7px; }.modern-prompt-block-row input, .modern-prompt-block-row select { min-width: 0; min-height: 30px; padding: 5px 7px; border: 1px solid #cfd9d1; border-radius: 4px; outline: none; color: #27332b; background: #fff; font: inherit; font-size: 11px; }.modern-prompt-block-row input:focus, .modern-prompt-block-row select:focus { border-color: #6ba180; box-shadow: 0 0 0 3px rgba(107, 161, 128, .14); }.modern-prompt-block textarea { width: 100%; box-sizing: border-box; min-height: 62px; margin-top: 8px; padding: 7px 9px; border: 1px solid #cfd9d1; border-radius: 4px; outline: none; color: #27332b; background: #fff; font: inherit; font-size: 12px; line-height: 1.6; resize: vertical; }.modern-prompt-block textarea:focus { border-color: #6ba180; box-shadow: 0 0 0 3px rgba(107, 161, 128, .14); }.modern-pin-icon { color: #b9823d; }.modern-depth-field { display: flex; flex-direction: column; gap: 2px; color: #8b978f; font-size: 9px; }.modern-depth-field input { width: 100%; }.modern-block-actions { display: flex; gap: 3px; }.modern-icon-button.danger:hover { color: #b3473d; border-color: #e2b4af; }.modern-add-block { width: 100%; margin-top: 10px; }.modern-add-block:hover { border-style: dashed; }
+.modern-model-list { display: flex; flex-direction: column; gap: 9px; padding-top: 18px; }.modern-model-card { align-items: center; padding: 16px; border: 1px solid #dbe4dc; background: #fff; }.modern-model-card > div:first-child { display: flex; flex-direction: column; gap: 5px; }.modern-model-card strong { font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 14px; }.modern-model-card span { color: #859188; font-size: 10px; }.modern-model-meta { color: #718076; font-size: 10px; }
+.modern-model-identity { min-width: 180px; }.modern-model-meta { flex: 1; flex-wrap: wrap; justify-content: flex-end; }.modern-model-meta span { padding-right: 8px; border-right: 1px solid #dce4dd; }.modern-model-meta span:last-child { padding-right: 0; border-right: 0; }.modern-model-actions { display: flex; align-items: center; gap: 9px; }.modern-model-modal { width: min(760px, 100%); }.modern-model-section { margin-top: 18px; padding-top: 4px; border-top: 1px solid #e1e7e1; }.modern-model-section-title { display: flex; align-items: baseline; gap: 9px; margin-top: -9px; }.modern-model-section-title span { padding-right: 8px; color: #34433a; background: #fff; font-size: 11px; font-weight: 700; }.modern-model-section-title small { color: #95a098; font-size: 10px; }.modern-model-key-row { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 10px; }.modern-discover-button { min-width: 112px; margin-bottom: 0; }.modern-discovery-status { display: flex; align-items: center; gap: 7px; margin-top: 10px; color: #36714e; font-size: 10px; }.modern-parameter-grid { grid-template-columns: repeat(3, 1fr); }.modern-field > small { align-self: flex-end; margin-top: -25px; margin-right: 9px; pointer-events: none; color: #98a39b; font-size: 9px; }.modern-field:has(> small) input { padding-right: 48px; }.modern-model-enabled, .modern-modal-actions { display: flex; align-items: center; gap: 10px; }.modern-model-enabled > span { color: #5e6d63; font-size: 11px; }.modern-spin { animation: modern-spin .8s linear infinite; }
+@keyframes modern-spin { to { transform: rotate(360deg); } }
+.modern-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #718076; font-size: 12px; }
+
+.modern-pin-slot { min-width: 18px; display: grid; place-items: center; }
+
+@media (max-width: 980px) { .modern-sidebar { width: 210px; flex-basis: 210px; }.modern-chat-layout { grid-template-columns: minmax(0, 1fr) 230px; }.modern-pane { padding: 26px 22px 60px; } }
+@media (max-width: 760px) { .modern-library-header { height: 64px; padding: 0 15px; }.modern-library-content { width: calc(100% - 28px); margin-top: 28px; }.modern-library-actions .ghost { display: none; }.modern-workspace { display: block; overflow: auto; }.modern-sidebar { width: 100%; min-height: auto; }.modern-sidebar-brand { height: 52px; min-height: 52px; }.modern-project-identity { padding: 15px 18px; }.modern-project-identity h1 { margin-bottom: 8px; }.modern-nav { display: grid; grid-template-columns: repeat(4, 1fr); padding: 7px; }.modern-nav button { justify-content: center; padding: 0 4px; font-size: 10px; }.modern-nav button svg { display: none; }.modern-session-list, .modern-sidebar-footer { display: none; }.modern-main { min-height: calc(100vh - 174px); }.modern-topbar { min-height: 64px; padding: 0 15px; }.modern-topbar h2 { font-size: 17px; }.modern-command { display: none; }.modern-chat-layout { display: block; }.modern-inspector { display: none; }.modern-chat-scroll { padding: 20px 14px; }.modern-composer { width: calc(100% - 28px); }.modern-pane { padding: 22px 14px 50px; }.modern-pane-head { flex-direction: column; gap: 14px; }.modern-file-layout, .modern-memory-layout { display: block; }.modern-file-list, .modern-memory-list { border-right: 0; border-bottom: 1px solid #dbe4dc; max-height: 260px; overflow: auto; }.modern-file-preview, .modern-memory-detail { min-height: 330px; }.modern-form-grid, .modern-parameter-grid { grid-template-columns: 1fr; }.modern-task-table { overflow: auto; }.modern-task-row { min-width: 610px; }.modern-model-meta { display: none; }.modern-model-key-row { grid-template-columns: 1fr; }.modern-discover-button { width: 100%; }.modern-model-card { gap: 10px; }.modern-model-identity { min-width: 0; flex: 1; }.modern-modal footer { flex-wrap: wrap; }.modern-modal-actions { margin-left: auto; } }
+.modern-prompt-block-row { overflow-x: auto; }
