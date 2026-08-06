@@ -9,15 +9,20 @@ import {
   createSession,
   createSourceFile,
   createTask,
+  deleteProject,
   deleteMemoryEntry,
   deleteReviewReport,
+  deleteSession,
+  deriveSessionTitle,
   getAgentProfile,
   getCatalog,
   getProject,
+  getSession,
   getSkill,
   getSourceFile,
   listAgentPromptBlocks,
   listAgentPromptBlocksByProject,
+  listAgentProfiles,
   listMemoryEntries,
   listMessages,
   listProjects,
@@ -85,6 +90,48 @@ describe("modern store", () => {
     expect(reportA.status).toBe("open");
   });
 
+  it("deletes a project and cascades its modern rows while preserving unrelated projects", () => {
+    const projectA = projectId("cascade-a");
+    const projectB = projectId("cascade-b");
+    createProject({ id: projectA, name: "级联删除 A" });
+    createProject({ id: projectB, name: "保留 B" });
+
+    const fileA = createSourceFile({ projectId: projectA, kind: "setting", area: "formal", title: "A 资料" });
+    createSourceFile({ projectId: projectB, kind: "setting", area: "formal", title: "B 资料" });
+    const sessionA = createSession({ projectId: projectA, title: "A 会话" });
+    appendMessage({ projectId: projectA, sessionId: sessionA.id, role: "user", content: "A 消息" });
+    const memoryA = createMemoryEntry({ projectId: projectA, title: "A 记忆", kind: "native", status: "formal" });
+    upsertSkill(projectA, memoryA.id, { summary: "A 技能" });
+    upsertCatalog(projectA, "style", "A 文风");
+    const taskA = createTask({ projectId: projectA, sessionId: sessionA.id, targetAgent: "logic_review", type: "review_a" });
+    createReviewReport({ projectId: projectA, kind: "logic", targetFileId: fileA.id, targetTaskId: taskA.id });
+    upsertAgentProfile(projectA, { role: "main", prompt: "A 主 Agent" });
+
+    expect(deleteProject(projectId("missing"))).toBe(false);
+    expect(deleteProject(projectA)).toBe(true);
+
+    const tables = [
+      "modern_source_files",
+      "modern_sessions",
+      "modern_messages",
+      "modern_tasks",
+      "modern_memory_entries",
+      "modern_memory_skills",
+      "modern_memory_catalogs",
+      "modern_review_reports",
+      "modern_agent_profiles",
+      "modern_agent_prompt_blocks",
+    ] as const;
+    for (const table of tables) {
+      const count = (sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE project_id = ?`).get(projectA) as { count: number }).count;
+      expect(count, `${table} should cascade`).toBe(0);
+    }
+    expect(getProject(projectA)).toBeNull();
+    expect(getProject(projectB)).toMatchObject({ id: projectB, name: "保留 B" });
+    expect(listSourceFiles(projectB)).toHaveLength(1);
+    expect(listMemoryEntries(projectB)).toHaveLength(0);
+  });
+
   it("stores source files in draft and formal areas with typed version refs", () => {
     const project = projectId("source-files");
     createProject({ id: project, name: "源文件测试" });
@@ -147,6 +194,76 @@ describe("modern store", () => {
     expect(() => listMessages(other, mainSession.id)).toThrow(/不属于该项目/);
   });
 
+  it("derives concise Unicode-safe session titles from user content", () => {
+    expect(deriveSessionTitle("  你好\n世界  ")).toBe("你好 世界");
+    expect(deriveSessionTitle("a\u0000b\u0007c")).toBe("a b c");
+    const long = "字".repeat(50);
+    const derived = deriveSessionTitle(long);
+    expect(Array.from(derived).length).toBe(40);
+    expect(derived.endsWith("…")).toBe(true);
+  });
+
+  it("names default/blank sessions on the first user message and never overwrites later", () => {
+    const project = projectId("session-naming");
+    createProject({ id: project, name: "会话命名" });
+    const defaultSession = createSession({ projectId: project, title: "新会话" });
+    appendMessage({ projectId: project, sessionId: defaultSession.id, role: "user", content: "第一条消息" });
+    expect(getSession(project, defaultSession.id)?.title).toBe("第一条消息");
+    appendMessage({ projectId: project, sessionId: defaultSession.id, role: "user", content: "第二条消息" });
+    expect(getSession(project, defaultSession.id)?.title).toBe("第一条消息");
+
+    const blankSessionId = crypto.randomUUID();
+    sqlite.prepare("INSERT INTO modern_sessions(id, project_id, title, created_at, updated_at) VALUES (?, ?, '', ?, ?)")
+      .run(blankSessionId, project, new Date().toISOString(), new Date().toISOString());
+    appendMessage({ projectId: project, sessionId: blankSessionId, role: "user", content: "空白标题消息" });
+    expect(getSession(project, blankSessionId)?.title).toBe("空白标题消息");
+
+    const customSession = createSession({ projectId: project, title: "自定义标题" });
+    appendMessage({ projectId: project, sessionId: customSession.id, role: "user", content: "不应覆盖" });
+    expect(getSession(project, customSession.id)?.title).toBe("自定义标题");
+  });
+
+  it("deletes only the selected session and its messages while preserving other sessions and projects", () => {
+    const project = projectId("session-delete-a");
+    const other = projectId("session-delete-b");
+    createProject({ id: project, name: "会话删除 A" });
+    createProject({ id: other, name: "会话保留 B" });
+
+    const target = createSession({ projectId: project, title: "待删除会话" });
+    const kept = createSession({ projectId: project, title: "保留会话" });
+    const otherSession = createSession({ projectId: other, title: "B 会话" });
+    appendMessage({ projectId: project, sessionId: target.id, role: "user", content: "删除我" });
+    appendMessage({ projectId: project, sessionId: kept.id, role: "user", content: "保留我" });
+    appendMessage({ projectId: other, sessionId: otherSession.id, role: "user", content: "B 保留" });
+    const targetTask = createTask({ projectId: project, sessionId: target.id, targetAgent: "context", type: "delete_target" });
+    createTask({ projectId: project, sessionId: kept.id, targetAgent: "context", type: "keep_target" });
+
+    expect(deleteSession(project, "missing-session")).toBe(false);
+    expect(deleteSession(project, target.id)).toBe(true);
+
+    const targetMessages = (sqlite.prepare("SELECT COUNT(*) AS count FROM modern_messages WHERE session_id = ? AND project_id = ?").get(target.id, project) as { count: number }).count;
+    const keptMessages = (sqlite.prepare("SELECT COUNT(*) AS count FROM modern_messages WHERE session_id = ? AND project_id = ?").get(kept.id, project) as { count: number }).count;
+    const otherMessages = (sqlite.prepare("SELECT COUNT(*) AS count FROM modern_messages WHERE session_id = ? AND project_id = ?").get(otherSession.id, other) as { count: number }).count;
+    expect(targetMessages).toBe(0);
+    expect(keptMessages).toBe(1);
+    expect(otherMessages).toBe(1);
+    expect(listSessions(project).map((session) => session.id)).toEqual([kept.id]);
+    expect(listSessions(other)).toHaveLength(1);
+    const detachedTask = sqlite.prepare("SELECT session_id AS sessionId FROM modern_tasks WHERE id = ?").get(targetTask.id) as { sessionId: string | null };
+    expect(detachedTask.sessionId).toBeNull();
+    expect(listTasks(project).some((task) => task.id === targetTask.id)).toBe(true);
+  });
+
+  it("persists agent modelProfile bindings across reads and updates", () => {
+    const project = projectId("agent-binding");
+    createProject({ id: project, name: "Agent 绑定测试" });
+    expect(upsertAgentProfile(project, { role: "main", modelProfile: "model-abc" })).toMatchObject({ role: "main", modelProfile: "model-abc" });
+    expect(getAgentProfile(project, "main")).toMatchObject({ modelProfile: "model-abc" });
+    expect(listAgentProfiles(project).find((profile) => profile.role === "main")).toMatchObject({ modelProfile: "model-abc" });
+    upsertAgentProfile(project, { role: "main", modelProfile: "model-xyz" });
+    expect(getAgentProfile(project, "main")).toMatchObject({ modelProfile: "model-xyz" });
+  });
+
   it("links memory entries, one skill sidecar and project catalogs", () => {
     const project = projectId("memory");
     const other = projectId("memory-other");
@@ -202,6 +319,33 @@ describe("modern store", () => {
     expect(second.content).toBe("冷峻克制，多用短句");
     expect(second.createdAt).toBe(catalog.createdAt);
     expect(getCatalog(other, "style")).toBeNull();
+  });
+
+  it("reconciles the memory catalog on status, title, priority and delete", () => {
+    const project = projectId("catalog-lifecycle");
+    createProject({ id: project, name: "目录生命周期测试" });
+
+    const memory = createMemoryEntry({ projectId: project, title: "初始记忆", kind: "native", status: "formal", content: "正式内容", basePriority: 0.5 });
+    expect(getCatalog(project, "memory")?.content).toContain("初始记忆");
+
+    updateMemoryEntry(project, memory.id, { title: "更新记忆", basePriority: 0.9 });
+    const updatedCatalog = getCatalog(project, "memory")!;
+    expect(updatedCatalog.content).toContain("更新记忆");
+    expect(updatedCatalog.content).toContain("priority=0.90");
+
+    updateMemoryEntry(project, memory.id, { status: "archived", expectedStatus: "formal" });
+    expect(getCatalog(project, "memory")?.content).not.toContain("更新记忆");
+
+    updateMemoryEntry(project, memory.id, { status: "formal", expectedStatus: "archived" });
+    expect(getCatalog(project, "memory")?.content).toContain("更新记忆");
+
+    deleteMemoryEntry(project, memory.id, "formal");
+    expect(getCatalog(project, "memory")?.content).toBe("");
+
+    const draft = createMemoryEntry({ projectId: project, title: "草稿记忆", kind: "derived", status: "draft" });
+    expect(getCatalog(project, "memory")?.content).not.toContain("草稿记忆");
+    updateMemoryEntry(project, draft.id, { status: "formal", expectedStatus: "draft" });
+    expect(getCatalog(project, "memory")?.content).toContain("草稿记忆");
   });
 
   it("tracks review status transitions and targets", () => {
@@ -294,6 +438,21 @@ describe("modern store", () => {
     expect(promoted.memory).toMatchObject({ status: "formal", sourceFileId: promoted.source.id });
     expect(promoted.skill.summary).toBe("城中设定摘要");
     expect(promoted.catalog.content).toContain("城中设定");
+
+    const repeated = promoteSourceAtomically({
+      projectId: project,
+      sourceFileId: draft.id,
+      memoryContent: "新内容",
+      memorySummary: "城中设定摘要",
+      memoryPurpose: "维持设定一致",
+      keywords: ["城中"],
+      basePriority: 0.75,
+    });
+    expect(repeated.source.id).toBe(promoted.source.id);
+    expect(repeated.memory.id).toBe(promoted.memory.id);
+    expect(repeated.skill.id).toBe(promoted.skill.id);
+    expect(listSourceFiles(project, { area: "formal" })).toHaveLength(1);
+    expect(listMemoryEntries(project, { status: "formal" })).toHaveLength(1);
 
     const failedDraft = createSourceFile({ projectId: project, kind: "setting", area: "draft", title: "触发回滚", content: "回滚内容" });
     sqlite.exec("CREATE TEMP TRIGGER modern_test_fail_memory BEFORE INSERT ON modern_memory_entries WHEN NEW.title = '触发回滚' BEGIN SELECT RAISE(ABORT, '测试故障'); END");

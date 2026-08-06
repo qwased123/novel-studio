@@ -76,6 +76,19 @@ export interface CreateSessionInput {
   title?: string;
 }
 
+export const DEFAULT_SESSION_TITLE = "新会话";
+export const SESSION_TITLE_MAX_LENGTH = 40;
+
+export function deriveSessionTitle(content: string): string {
+  const cleaned = content
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const chars = Array.from(cleaned);
+  if (chars.length <= SESSION_TITLE_MAX_LENGTH) return chars.join("");
+  return `${chars.slice(0, SESSION_TITLE_MAX_LENGTH - 1).join("")}…`;
+}
+
 export const MESSAGE_ROLES = ["main", "user", "assistant", "system"] as const;
 export type MessageRole = (typeof MESSAGE_ROLES)[number];
 
@@ -797,6 +810,15 @@ export function getProject(projectId: string): ModernProject | null {
   return row ? mapProject(row) : null;
 }
 
+export function deleteProject(projectId: string): boolean {
+  assertProjectId(projectId);
+  return sqlite.transaction(() => {
+    if (!loadProjectRow(projectId)) return false;
+    sqlite.prepare("DELETE FROM modern_projects WHERE id = ?").run(projectId);
+    return true;
+  })();
+}
+
 // ---------- 源文件 ----------
 
 export function createSourceFile(input: CreateSourceFileInput): SourceFile {
@@ -908,6 +930,17 @@ export function getSession(projectId: string, sessionId: string): Session | null
   return mapSession(session);
 }
 
+export function deleteSession(projectId: string, sessionId: string): boolean {
+  assertProjectId(projectId);
+  assertText(sessionId, "sessionId", 128);
+  return sqlite.transaction(() => {
+    const session = loadSessionRow(sessionId);
+    if (!session || String(session.projectId) !== projectId) return false;
+    sqlite.prepare("DELETE FROM modern_sessions WHERE id = ? AND project_id = ?").run(sessionId, projectId);
+    return true;
+  })();
+}
+
 export function appendMessage(input: AppendMessageInput): Message {
   assertProjectId(input.projectId);
   assertText(input.sessionId, "sessionId", 128);
@@ -917,11 +950,16 @@ export function appendMessage(input: AppendMessageInput): Message {
   const now = isoNow();
   return sqlite.transaction(() => {
     assertSessionOwned(input.projectId, input.sessionId);
+    const sessionRow = loadSessionRow(input.sessionId)!;
+    const currentTitle = String(sessionRow.title).trim();
+    const nextTitle = input.role === "user" && (currentTitle === "" || currentTitle === DEFAULT_SESSION_TITLE)
+      ? deriveSessionTitle(input.content)
+      : currentTitle;
     sqlite.prepare(`
       INSERT INTO modern_messages(id, session_id, project_id, role, content, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(id, input.sessionId, input.projectId, input.role, input.content, now);
-    sqlite.prepare("UPDATE modern_sessions SET updated_at = ? WHERE id = ?").run(now, input.sessionId);
+    sqlite.prepare("UPDATE modern_sessions SET title = ?, updated_at = ? WHERE id = ?").run(nextTitle, now, input.sessionId);
     return { id, sessionId: input.sessionId, projectId: input.projectId, role: input.role, content: input.content, createdAt: now };
   })();
 }
@@ -1063,6 +1101,7 @@ export function createMemoryEntry(input: CreateMemoryEntryInput): MemoryEntry {
       INSERT INTO modern_memory_entries(id, project_id, title, kind, status, content, source_file_id, source_version, base_priority, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, input.projectId, input.title.trim(), input.kind, status, content, sourceFileId, sourceVersion, basePriority, now, now);
+    reconcileMemoryCatalog(input.projectId, now);
     return mapMemoryEntry(loadMemoryEntryRow(input.projectId, id)!);
   })();
 }
@@ -1139,6 +1178,7 @@ export function updateMemoryEntry(projectId: string, memoryEntryId: string, inpu
       memoryEntryId,
       projectId,
     );
+    reconcileMemoryCatalog(projectId, now);
     return mapMemoryEntry(loadMemoryEntryRow(projectId, memoryEntryId)!);
   })();
 }
@@ -1147,11 +1187,13 @@ export function deleteMemoryEntry(projectId: string, memoryEntryId: string, expe
   assertProjectId(projectId);
   assertText(memoryEntryId, "memoryEntryId", 128);
   const status = optionalEnum(expectedStatus, "expectedStatus", MEMORY_STATUSES);
+  const now = isoNow();
   sqlite.transaction(() => {
     const row = loadMemoryEntryRow(projectId, memoryEntryId);
     if (!row) throw new Error("记忆条目不存在或不属于该项目");
     if (status !== undefined && String(row.status) !== status) throw new Error(`记忆条目当前状态为 ${String(row.status)}，期望 ${status}`);
     sqlite.prepare("DELETE FROM modern_memory_entries WHERE id = ? AND project_id = ?").run(memoryEntryId, projectId);
+    reconcileMemoryCatalog(projectId, now);
   })();
 }
 
@@ -1203,6 +1245,21 @@ export function getSkill(projectId: string, memoryEntryId: string): MemorySkill 
 }
 
 // ---------- 记忆目录 ----------
+
+function reconcileMemoryCatalog(projectId: string, now: string): MemoryCatalog {
+  const catalogContent = (sqlite.prepare(`SELECT title, kind, base_priority AS basePriority FROM modern_memory_entries WHERE project_id = ? AND status = 'formal' ORDER BY updated_at DESC, id ASC`).all(projectId) as Row[])
+    .map((entry) => `- ${String(entry.title)} [${String(entry.kind)}] priority=${Number(entry.basePriority).toFixed(2)}`)
+    .join("\n");
+  const existing = sqlite.prepare("SELECT created_at AS createdAt FROM modern_memory_catalogs WHERE project_id = ? AND kind = 'memory'").get(projectId) as Row | undefined;
+  if (existing) {
+    sqlite.prepare("UPDATE modern_memory_catalogs SET content = ?, updated_at = ? WHERE project_id = ? AND kind = 'memory'")
+      .run(catalogContent, now, projectId);
+  } else {
+    sqlite.prepare("INSERT INTO modern_memory_catalogs(project_id, kind, content, created_at, updated_at) VALUES (?, 'memory', ?, ?, ?)")
+      .run(projectId, catalogContent, now, now);
+  }
+  return mapMemoryCatalog(sqlite.prepare(`SELECT ${CATALOG_COLUMNS} FROM modern_memory_catalogs WHERE project_id = ? AND kind = 'memory'`).get(projectId) as Row);
+}
 
 export function getCatalog(projectId: string, kind: string): MemoryCatalog | null {
   assertProjectId(projectId);
@@ -1271,8 +1328,41 @@ export function promoteSourceAtomically(input: PromoteSourceInput): PromoteSourc
     const draftRow = loadSourceFileRow(input.projectId, input.sourceFileId);
     if (!draftRow) throw new Error("资料文件不存在或不属于该项目");
     if (String(draftRow.area) !== "draft") throw new Error("只有草稿可以转为正式版本");
-    const sourceId = newId();
     const sourceVersion = `draft:${input.sourceFileId}:v${Number(draftRow.version ?? 1)}`;
+    const existingSource = sqlite.prepare(`SELECT ${SOURCE_FILE_COLUMNS} FROM modern_source_files
+      WHERE project_id = ? AND source_file_id = ? AND source_version = ? AND area = 'formal'
+      ORDER BY created_at DESC, id ASC LIMIT 1`).get(input.projectId, input.sourceFileId, sourceVersion) as Row | undefined;
+    if (existingSource) {
+      const existingMemory = sqlite.prepare(`SELECT ${MEMORY_ENTRY_COLUMNS} FROM modern_memory_entries
+        WHERE project_id = ? AND source_file_id = ? AND source_version = ?
+        ORDER BY created_at DESC, id ASC LIMIT 1`).get(input.projectId, String(existingSource.id), sourceVersion) as Row | undefined;
+      let memory: MemoryEntry;
+      if (existingMemory) {
+        memory = mapMemoryEntry(existingMemory);
+      } else {
+        const memoryId = newId();
+        sqlite.prepare(`INSERT INTO modern_memory_entries(
+          id, project_id, title, kind, status, content, source_file_id, source_version, base_priority, created_at, updated_at
+        ) VALUES (?, ?, ?, 'derived', 'formal', ?, ?, ?, ?, ?, ?)`)
+          .run(memoryId, input.projectId, String(draftRow.title), input.memoryContent, String(existingSource.id), sourceVersion, basePriority, now, now);
+        memory = mapMemoryEntry(loadMemoryEntryRow(input.projectId, memoryId)!);
+      }
+      let skillRow = sqlite.prepare(`SELECT ${MEMORY_SKILL_COLUMNS} FROM modern_memory_skills
+        WHERE memory_entry_id = ? AND project_id = ?`).get(memory.id, input.projectId) as Row | undefined;
+      if (!skillRow) {
+        const skillId = newId();
+        sqlite.prepare(`INSERT INTO modern_memory_skills(
+          id, memory_entry_id, project_id, summary, purpose, keywords_json, related_json, source_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?)`)
+          .run(skillId, memory.id, input.projectId, input.memorySummary, input.memoryPurpose, JSON.stringify(keywords), sourceVersion, now, now);
+        skillRow = sqlite.prepare(`SELECT ${MEMORY_SKILL_COLUMNS} FROM modern_memory_skills
+          WHERE memory_entry_id = ? AND project_id = ?`).get(memory.id, input.projectId) as Row;
+      }
+      const catalog = reconcileMemoryCatalog(input.projectId, now);
+      return { source: mapSourceFile(existingSource), memory, skill: mapMemorySkill(skillRow), catalog };
+    }
+
+    const sourceId = newId();
     sqlite.prepare(`INSERT INTO modern_source_files(
       id, project_id, kind, area, title, content, source_file_id, source_version, version, status, created_at, updated_at
     ) VALUES (?, ?, ?, 'formal', ?, ?, ?, ?, 1, 'active', ?, ?)`)
@@ -1292,19 +1382,7 @@ export function promoteSourceAtomically(input: PromoteSourceInput): PromoteSourc
     ) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?)`)
       .run(skillId, memory.id, input.projectId, input.memorySummary, input.memoryPurpose, JSON.stringify(keywords), sourceVersion, now, now);
     const skill = mapMemorySkill(sqlite.prepare(`SELECT ${MEMORY_SKILL_COLUMNS} FROM modern_memory_skills WHERE id = ?`).get(skillId) as Row);
-
-    const catalogContent = (sqlite.prepare(`SELECT title, kind, base_priority AS basePriority FROM modern_memory_entries WHERE project_id = ? AND status = 'formal' ORDER BY updated_at DESC, id ASC`).all(input.projectId) as Row[])
-      .map((entry) => `- ${String(entry.title)} [${String(entry.kind)}] priority=${Number(entry.basePriority).toFixed(2)}`)
-      .join("\n");
-    const existingCatalog = sqlite.prepare("SELECT created_at AS createdAt FROM modern_memory_catalogs WHERE project_id = ? AND kind = 'memory'").get(input.projectId) as Row | undefined;
-    if (existingCatalog) {
-      sqlite.prepare("UPDATE modern_memory_catalogs SET content = ?, updated_at = ? WHERE project_id = ? AND kind = 'memory'")
-        .run(catalogContent, now, input.projectId);
-    } else {
-      sqlite.prepare("INSERT INTO modern_memory_catalogs(project_id, kind, content, created_at, updated_at) VALUES (?, 'memory', ?, ?, ?)")
-        .run(input.projectId, catalogContent, now, now);
-    }
-    const catalog = mapMemoryCatalog(sqlite.prepare(`SELECT ${CATALOG_COLUMNS} FROM modern_memory_catalogs WHERE project_id = ? AND kind = 'memory'`).get(input.projectId) as Row);
+    const catalog = reconcileMemoryCatalog(input.projectId, now);
     return { source: formal, memory, skill, catalog };
   })();
 }
@@ -1837,6 +1915,10 @@ export function initModernStore() {
   const sourceColumns = sqlite.prepare("PRAGMA table_info(modern_source_files)").all() as Array<{ name: string }>;
   if (!sourceColumns.some((column) => column.name === "version")) {
     sqlite.exec("ALTER TABLE modern_source_files ADD COLUMN version INTEGER NOT NULL DEFAULT 1");
+  }
+  const agentProfileColumns = sqlite.prepare("PRAGMA table_info(modern_agent_profiles)").all() as Array<{ name: string }>;
+  if (!agentProfileColumns.some((column) => column.name === "model_profile")) {
+    sqlite.exec("ALTER TABLE modern_agent_profiles ADD COLUMN model_profile TEXT NOT NULL DEFAULT ''");
   }
   sqlite.prepare(`
     INSERT INTO modern_agent_prompt_blocks

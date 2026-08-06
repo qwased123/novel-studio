@@ -1,14 +1,17 @@
 import { getCredential, setCredential } from "./credentials.js";
 import { isoNow, newId, sqlite } from "./db.js";
+import Database from "better-sqlite3";
 
 export const MODERN_MODEL_PROVIDERS = ["openai", "anthropic", "openai-compatible"] as const;
 export type ModernModelProvider = typeof MODERN_MODEL_PROVIDERS[number];
-export const REASONING_EFFORTS = ["none", "low", "medium", "high"] as const;
+export const REASONING_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
 export type ReasoningEffort = typeof REASONING_EFFORTS[number];
 export const DEFAULT_TOP_P = 1;
 export const DEFAULT_CONTEXT_LENGTH = 128_000;
 export const CONTEXT_LENGTH_MIN = 1_024;
 export const CONTEXT_LENGTH_MAX = 2_000_000;
+export const MAX_OUTPUT_TOKENS_MIN = 256;
+export const MAX_OUTPUT_TOKENS_MAX = 100_000;
 
 export interface ModernModelConfig {
   id: string;
@@ -59,7 +62,7 @@ export function initModernModels() {
       model TEXT NOT NULL DEFAULT '',
       base_url TEXT NOT NULL DEFAULT '',
       temperature REAL NOT NULL DEFAULT 0.7,
-      reasoning_effort TEXT NOT NULL DEFAULT 'none' CHECK(reasoning_effort IN ('none','low','medium','high')),
+      reasoning_effort TEXT NOT NULL DEFAULT 'none' CHECK(reasoning_effort IN ('none','low','medium','high','xhigh','max')),
       top_p REAL NOT NULL DEFAULT 1,
       context_length INTEGER NOT NULL DEFAULT 128000,
       max_output_tokens INTEGER NOT NULL DEFAULT 8192,
@@ -67,13 +70,55 @@ export function initModernModels() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_modern_models_updated ON modern_model_configs(updated_at DESC);
   `);
+  ensureColumn("reasoning_effort", "TEXT NOT NULL DEFAULT 'none' CHECK(reasoning_effort IN ('none','low','medium','high','xhigh','max'))");
   ensureColumn("top_p", "REAL NOT NULL DEFAULT 1");
   ensureColumn("context_length", "INTEGER NOT NULL DEFAULT 128000");
+  migrateModernModelConfigs(sqlite);
+  sqlite.exec("CREATE INDEX IF NOT EXISTS idx_modern_models_updated ON modern_model_configs(updated_at DESC)");
 }
 
 initModernModels();
+
+/**
+ * Older installations created `modern_model_configs` with a CHECK that only
+ * allowed none/low/medium/high. SQLite cannot alter a CHECK constraint, so the
+ * table is rebuilt in place. The new definition is cloned from sqlite_master
+ * with only the old CHECK replaced, preserving every column, constraint,
+ * default, and row (including any future columns added by a later version).
+ * The table has no foreign keys, but foreign_keys is still toggled safely and
+ * restored so any surrounding connection behavior is unchanged.
+ */
+export function migrateModernModelConfigs(db: InstanceType<typeof Database> = sqlite) {
+  const table = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'modern_model_configs'").get() as { sql?: string } | undefined;
+  if (!table?.sql) return;
+  const oldCheck = table.sql.match(/CHECK\s*\(\s*["']?reasoning_effort["']?\s+IN\s*\([^)]*\)\s*\)/i)?.[0];
+  const hasExpandedCheck = /CHECK\s*\(\s*["']?reasoning_effort["']?\s+IN\s*\([^)]*'xhigh'[^)]*'max'[^)]*\)\s*\)/i.test(table.sql);
+  if (hasExpandedCheck) return;
+  if (!oldCheck) return;
+  const newTableSql = table.sql
+    .replace(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?modern_model_configs\b/i, "CREATE TABLE modern_model_configs_new")
+    .replace(oldCheck, "CHECK(reasoning_effort IN ('none','low','medium','high','xhigh','max'))");
+  const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'modern_model_configs' AND sql IS NOT NULL")
+    .all() as Array<{ sql: string }>;
+
+  const foreignKeys = Number(db.pragma("foreign_keys", { simple: true })) === 1;
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
+        ${newTableSql};
+        INSERT INTO modern_model_configs_new SELECT * FROM modern_model_configs;
+        DROP TABLE modern_model_configs;
+        ALTER TABLE modern_model_configs_new RENAME TO modern_model_configs;
+      `);
+      for (const index of indexes) db.exec(index.sql);
+      db.exec("CREATE INDEX IF NOT EXISTS idx_modern_models_updated ON modern_model_configs(updated_at DESC)");
+    })();
+  } finally {
+    db.pragma(`foreign_keys = ${foreignKeys ? "ON" : "OFF"}`);
+  }
+}
 
 function assertInput(input: SaveModernModelInput) {
   if (!input.name?.trim()) throw new Error("模型配置名称不能为空");
@@ -84,7 +129,9 @@ function assertInput(input: SaveModernModelInput) {
   if (input.contextLength !== undefined && (!Number.isInteger(input.contextLength) || input.contextLength < CONTEXT_LENGTH_MIN || input.contextLength > CONTEXT_LENGTH_MAX)) {
     throw new Error(`上下文长度必须在 ${CONTEXT_LENGTH_MIN} 到 ${CONTEXT_LENGTH_MAX} 之间`);
   }
-  if (input.maxOutputTokens !== undefined && (!Number.isInteger(input.maxOutputTokens) || input.maxOutputTokens < 256 || input.maxOutputTokens > 100_000)) throw new Error("最大输出 token 不合法");
+  if (input.maxOutputTokens !== undefined && (!Number.isInteger(input.maxOutputTokens) || input.maxOutputTokens < MAX_OUTPUT_TOKENS_MIN || input.maxOutputTokens > MAX_OUTPUT_TOKENS_MAX)) {
+    throw new Error(`最大输出 token 必须在 ${MAX_OUTPUT_TOKENS_MIN} 到 ${MAX_OUTPUT_TOKENS_MAX} 之间`);
+  }
   if ((input.maxOutputTokens ?? 8192) > (input.contextLength ?? DEFAULT_CONTEXT_LENGTH)) throw new Error("最大输出 token 不能超过上下文长度");
 }
 

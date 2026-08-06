@@ -1,9 +1,20 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { agentRuntime, assemblePromptMessages, type AgentModelConfig } from "./agent-runtime.js";
+import { agentRuntime, assemblePromptMessages, ReasoningEffortUnsupportedError, sanitizeProviderMessage, type AgentModelConfig } from "./agent-runtime.js";
 import { getCredential } from "./credentials.js";
 import { isoNow, newId, sqlite } from "./db.js";
-import { discoverModels, getModernModel, getModernModelCredential, listModernModels, saveModernModel } from "./modern-models.js";
+import {
+  CONTEXT_LENGTH_MAX,
+  CONTEXT_LENGTH_MIN,
+  discoverModels,
+  getModernModel,
+  getModernModelCredential,
+  listModernModels,
+  MAX_OUTPUT_TOKENS_MAX,
+  MAX_OUTPUT_TOKENS_MIN,
+  REASONING_EFFORTS,
+  saveModernModel,
+} from "./modern-models.js";
 import {
   AGENT_ROLES,
   MEMORY_KINDS,
@@ -21,8 +32,10 @@ import {
   createSession,
   createSourceFile,
   createTask,
+  deleteProject,
   deleteMemoryEntry,
   deleteReviewReport,
+  deleteSession,
   getAgentProfile,
   getCatalog,
   getMemoryEntry,
@@ -53,6 +66,7 @@ import {
   type AgentRole,
   type JsonRecord,
   type MemoryEntry,
+  type Message,
   type SourceFile,
 } from "./modern-store.js";
 
@@ -120,10 +134,10 @@ const modernModelConfigSchema = z.object({
   model: z.string().max(200),
   baseUrl: z.string().max(500).optional(),
   temperature: z.number().min(0).max(2).optional(),
-  reasoningEffort: z.enum(["none", "low", "medium", "high"]).optional(),
+  reasoningEffort: z.enum(REASONING_EFFORTS).optional(),
   topP: z.number().min(0).max(1).optional(),
-  contextLength: z.number().int().min(1_024).max(2_000_000).optional(),
-  maxOutputTokens: z.number().int().min(256).max(100_000).optional(),
+  contextLength: z.number().int().min(CONTEXT_LENGTH_MIN).max(CONTEXT_LENGTH_MAX).optional(),
+  maxOutputTokens: z.number().int().min(MAX_OUTPUT_TOKENS_MIN).max(MAX_OUTPUT_TOKENS_MAX).optional(),
   enabled: z.boolean().optional(),
   apiKey: z.string().max(2000).optional(),
 });
@@ -249,6 +263,8 @@ function modelForMain(projectId: string): { config: AgentModelConfig; temperatur
       apiKey,
       baseUrl: model.baseUrl || undefined,
       adapterName: "novel-studio-modern-main",
+      reasoningEffort: model.reasoningEffort,
+      configName: model.name,
     },
     temperature: model.temperature,
     topP: model.topP,
@@ -305,6 +321,13 @@ export async function registerModernRoutes(app: FastifyInstance) {
     const project = getProject(projectParams(request.params.projectId));
     if (!project) return reply.status(404).send({ error: "作品不存在" });
     return project;
+  });
+  app.delete<{ Params: { projectId: string } }>("/api/modern/projects/:projectId", async (request, reply) => {
+    const confirmation = z.object({ confirm: z.literal(true) }).safeParse(request.body);
+    if (!confirmation.success) return reply.status(400).send({ error: "删除作品需要确认" });
+    const deleted = deleteProject(projectParams(request.params.projectId));
+    if (!deleted) return reply.status(404).send({ error: "作品不存在" });
+    return { ok: true };
   });
 
   app.get<{ Params: { projectId: string }; Querystring: { kind?: string; area?: string } }>("/api/modern/projects/:projectId/sources", async (request) => {
@@ -374,17 +397,45 @@ export async function registerModernRoutes(app: FastifyInstance) {
     if (!session) return reply.status(404).send({ error: "会话不存在" });
     const body = messageSchema.parse(request.body);
     const userMessage = appendMessage({ projectId, sessionId: session.id, role: "user", content: body.content });
+    const updatedSession = getSession(projectId, session.id)!;
     const mainModel = modelForMain(projectId);
     const candidates = buildContext(projectId, "main", body.content, mainModel?.contextLength);
     const contextTask = makeTaskResult(projectId, session.id, "context", "select_context", { query: body.content }, { candidates: candidates.map((candidate) => ({ id: candidate.id, title: candidate.title, layer: candidate.layer, fullText: candidate.fullText })) });
     const ranked = [...candidates].sort((a, b) => (b.basePriority + b.relevance) - (a.basePriority + a.relevance));
     const priorityTask = makeTaskResult(projectId, session.id, "priority", "rank_context", { candidateIds: candidates.map((candidate) => candidate.id) }, { ranked: ranked.map((candidate, index) => ({ id: candidate.id, rank: index + 1, layer: candidate.layer })) });
     const recent = listMessages(projectId, session.id).slice(-8).map((message) => `${message.role}: ${message.content}`).join("\n");
-    const assistantText = mainModel
-      ? await runMainModel(projectId, contextText(ranked), recent, body.content, mainModel)
-      : "我已经收到你的要求。主 Agent 会先整理任务，再由上下文 Agent 选择相关记忆；当前尚未配置规划模型，因此这轮先记录为待处理任务。";
-    const assistant = appendMessage({ projectId, sessionId: session.id, role: "main", content: assistantText });
-    return reply.status(201).send({ userMessage, assistant, context: ranked, taskIds: [contextTask.id, priorityTask.id] });
+    let assistant: Message | null = null;
+    let notice: { code: string; message: string } | null = null;
+    if (mainModel) {
+      try {
+        const assistantText = await runMainModel(projectId, contextText(ranked), recent, body.content, mainModel);
+        assistant = appendMessage({ projectId, sessionId: session.id, role: "main", content: assistantText });
+      } catch (error) {
+        if (error instanceof ReasoningEffortUnsupportedError) {
+          return reply.status(400).send({
+            error: error.message,
+            code: error.code,
+            detail: error.details,
+          });
+        }
+        const providerMessage = sanitizeProviderMessage(error instanceof Error ? error.message : String(error)) || "模型请求失败";
+        return reply.status(502).send({
+          error: providerMessage,
+          code: "model_request_failed",
+          detail: { providerMessage },
+        });
+      }
+    } else {
+      notice = { code: "model_not_configured", message: "请先为「主 Agent」配置模型，再继续对话。" };
+    }
+    return reply.status(201).send({ userMessage, session: updatedSession, assistant, notice, context: ranked, taskIds: [contextTask.id, priorityTask.id] });
+  });
+  app.delete<{ Params: { projectId: string; sessionId: string } }>("/api/modern/projects/:projectId/sessions/:sessionId", async (request, reply) => {
+    const confirmation = z.object({ confirm: z.literal(true) }).safeParse(request.body);
+    if (!confirmation.success) return reply.status(400).send({ error: "删除会话需要确认" });
+    const deleted = deleteSession(projectParams(request.params.projectId), request.params.sessionId);
+    if (!deleted) return reply.status(404).send({ error: "会话不存在" });
+    return { ok: true };
   });
 
   app.get<{ Params: { projectId: string } }>("/api/modern/projects/:projectId/tasks", async (request) => listTasks(projectParams(request.params.projectId)));

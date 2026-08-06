@@ -80,6 +80,11 @@ async function errorDetail(response: Response) {
 }
 
 function extractModelIds(payload: unknown): string[] {
+  // Provider /models endpoints return model identifiers only; they do not
+  // include reliable per-model capability metadata such as supported reasoning
+  // efforts. OpenAI-compatible endpoints vary and Anthropic/OpenAI responses
+  // have no standardized capability field, so capability discovery is not
+  // attempted here and unsupported efforts are handled from request errors.
   const root = payload as { data?: unknown; models?: unknown } | null;
   const list = Array.isArray(root)
     ? root

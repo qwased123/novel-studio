@@ -28,12 +28,15 @@ body:has(.modern-library, .modern-workspace, .modern-loading) {
 .modern-section-head p, .modern-pane-head p { margin: 7px 0 0; color: #819087; font-size: 12px; }
 .modern-eyebrow { color: #4d8a69; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
 .modern-project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; padding-top: 20px; }
-.modern-project-card { min-height: 90px; display: grid; grid-template-columns: 47px minmax(0, 1fr) 18px; align-items: center; gap: 12px; padding: 16px; border: 1px solid #dbe3dc; border-radius: 7px; color: #25302a; background: #fff; cursor: pointer; text-align: left; }
+.modern-project-card { min-height: 90px; display: flex; align-items: stretch; gap: 6px; padding: 10px; border: 1px solid #dbe3dc; border-radius: 7px; color: #25302a; background: #fff; }
 .modern-project-card:hover { border-color: #87ad94; box-shadow: 0 7px 22px rgba(36, 75, 51, .08); }
+.modern-project-card-open { flex: 1; min-width: 0; display: grid; grid-template-columns: 47px minmax(0, 1fr) 18px; align-items: center; gap: 12px; padding: 6px; border: 0; border-radius: 5px; color: inherit; background: transparent; cursor: pointer; text-align: left; font: inherit; }
 .modern-project-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 8px; color: #276848; background: #e6f0e8; }
 .modern-project-card span:nth-child(2), .modern-project-card span:nth-child(2) small { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .modern-project-card strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .modern-project-card small { color: #8a958d; font-size: 10px; }
+.modern-project-delete { align-self: center; }
+.modern-project-delete:disabled { opacity: .45; cursor: not-allowed; }
 .modern-empty { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #9aa59e; font-size: 12px; }
 .modern-empty.large { min-height: 340px; border: 1px dashed #ccd9cf; background: rgba(255,255,255,.45); }
 .modern-empty.large strong { color: #405047; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 17px; }
@@ -49,6 +52,12 @@ body:has(.modern-library, .modern-workspace, .modern-loading) {
 .modern-modal h2 { margin: 6px 0 0; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 22px; }
 .modern-modal header p { margin: 7px 0 0; color: #849088; font-size: 11px; line-height: 1.5; }
 .modern-modal footer { align-items: center; margin-top: 22px; padding-top: 15px; border-top: 1px solid #e1e7e1; }
+.modern-delete-target, .modern-reasoning-detail { margin-top: 16px; padding: 12px; border: 1px solid #e2e9e3; border-radius: 5px; background: #f8faf8; }
+.modern-delete-target strong, .modern-reasoning-detail span { display: block; color: #3b4a40; font-size: 12px; }
+.modern-delete-target span, .modern-reasoning-detail span { margin-top: 4px; color: #7e8b82; font-size: 10px; }
+.modern-reasoning-detail small { display: block; margin-top: 7px; color: #8b978f; font-size: 10px; line-height: 1.5; word-break: break-word; }
+.modern-delete-confirm { color: #fff; background: #b3473d; }
+.modern-delete-confirm:hover { background: #9d3c33; }
 .modern-icon-button { width: 31px; height: 31px; display: inline-grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 5px; color: #68766c; background: transparent; cursor: pointer; }
 .modern-icon-button:hover { border-color: #cbd8ce; color: #276848; background: #f5f9f5; }
 .modern-field { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; color: #66746b; font-size: 11px; }
@@ -73,6 +82,10 @@ body:has(.modern-library, .modern-workspace, .modern-loading) {
 .modern-subhead { justify-content: space-between; padding: 0 10px 6px; color: #809487; font-size: 10px; }
 .modern-session-list button { width: 100%; min-height: 31px; gap: 8px; padding-left: 12px; color: #96a69a; font-size: 10px; }
 .modern-session-list button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modern-session-row { display: flex; align-items: center; gap: 2px; }
+.modern-session-row .modern-session-open { flex: 1; min-width: 0; width: auto; }
+.modern-session-row .modern-session-delete { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; }
+.modern-session-delete:disabled { opacity: .45; cursor: not-allowed; }
 .modern-sidebar-footer { margin-top: auto; padding: 15px 18px 18px; border-top: 1px solid rgba(218, 236, 223, .1); color: #90a398; }
 .modern-sidebar-footer span { font-size: 10px; }
 .modern-sidebar-footer small { display: block; margin-top: 5px; color: #6e8275; font-size: 9px; }
@@ -100,6 +113,15 @@ body:has(.modern-library, .modern-workspace, .modern-loading) {
 .modern-message-body { padding: 13px 15px; border: 1px solid #dde5df; border-radius: 7px; color: #34423a; background: #fff; font-family: "Noto Serif SC Variable", Georgia, serif; font-size: 14px; line-height: 1.85; white-space: pre-wrap; }
 .modern-message.user .modern-message-meta { justify-content: flex-end; }
 .modern-message.user .modern-message-body { border-color: #c5dfcb; color: #254933; background: #eff8f1; }
+.modern-notice { width: min(760px, calc(100% - 44px)); margin: 0 auto 10px; padding: 10px 12px; display: flex; align-items: center; gap: 8px; border: 1px solid #e4cda7; border-radius: 6px; color: #7a5a2a; background: #fff8ed; font-size: 11px; }
+.modern-notice > span { flex: 1; line-height: 1.5; }
+.modern-notice .modern-button { min-height: 28px; padding: 0 10px; }
+.modern-notice .modern-icon-button { width: 28px; height: 28px; flex: 0 0 28px; }
+.modern-processing { width: min(760px, calc(100% - 44px)); margin: 0 auto 10px; padding: 9px 12px; display: flex; align-items: center; gap: 8px; border: 1px solid #cfe0d3; border-radius: 6px; color: #3f6c50; background: #f2f8f3; font-size: 11px; }
+.modern-send-error { width: min(760px, calc(100% - 44px)); margin: 0 auto 10px; display: flex; align-items: center; gap: 8px; }
+.modern-send-error > span { flex: 1; }
+.modern-send-error .modern-button { min-height: 28px; padding: 0 10px; }
+.modern-send-error .modern-icon-button { width: 28px; height: 28px; flex: 0 0 28px; }
 .modern-composer { width: min(760px, calc(100% - 44px)); margin: 0 auto 22px; padding: 11px 12px 8px; border: 1px solid #cbd9ce; border-radius: 7px; background: #fff; box-shadow: 0 8px 25px rgba(41, 73, 49, .07); }
 .modern-composer textarea { width: 100%; box-sizing: border-box; min-height: 58px; padding: 4px 2px; border: 0; outline: none; resize: vertical; color: #2d3b32; background: transparent; font: inherit; font-size: 13px; line-height: 1.6; }
 .modern-composer footer { display: flex; align-items: center; justify-content: space-between; color: #9aa59e; font-size: 9px; }

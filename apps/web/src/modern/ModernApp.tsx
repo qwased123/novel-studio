@@ -32,8 +32,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { api } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, ApiError } from "../api";
+import { formatSendFailure } from "../sendError";
 import "./modern.css";
 
 interface Project { id: string; name: string; createdAt: string; updatedAt: string }
@@ -46,8 +47,19 @@ interface Task { id: string; targetAgent: string; type: string; status: string; 
 interface Review { id: string; kind: string; status: string; content: string; targetFileId: string | null; createdAt: string }
 interface PromptBlock { id?: string; name: string; enabled: boolean; pinned: boolean; role: "system" | "user" | "assistant"; position: number; depth: number; triggerScope: "always" | "chat" | "task"; content: string }
 interface AgentProfile { id: string; role: string; enabled: boolean; prompt: string; promptBlocks: PromptBlock[]; modelProfile: string; updatedAt: string }
-interface ModelConfig { id: string; name: string; provider: string; model: string; baseUrl: string; temperature: number; reasoningEffort: "none" | "low" | "medium" | "high"; topP: number; contextLength: number; maxOutputTokens: number; enabled: boolean; hasApiKey: boolean; updatedAt: string }
+interface ModelConfig { id: string; name: string; provider: string; model: string; baseUrl: string; temperature: number; reasoningEffort: "none" | "low" | "medium" | "high" | "xhigh" | "max"; topP: number; contextLength: number; maxOutputTokens: number; enabled: boolean; hasApiKey: boolean; updatedAt: string }
 interface ContextItem { id: string; title: string; kind: string; source: string; summary: string; layer: string; fullText: boolean; relevance: number; basePriority: number }
+interface ReasoningEffortErrorDetail { reasoningEffort?: string; model?: string; provider?: string; configName?: string; providerMessage?: string }
+interface ChatNotice { code: string; message: string }
+interface ChatResponse { userMessage: Message; session: Session; assistant: Message | null; notice: ChatNotice | null; context: ContextItem[] }
+type SendMutationContext = {
+  optimisticId: string;
+  previous?: Message[];
+  draft: string;
+  projectId: string;
+  sessionId: string;
+  messagesKey: readonly ["modern-messages", string, string];
+};
 
 type View = "chat" | "files" | "memory" | "reviews" | "tasks" | "agents" | "models";
 const agentLabels: Record<string, string> = { main: "主 Agent", writer: "正文 Agent", context: "上下文 Agent", priority: "优先级 Agent", memory_manager: "记忆文件管理 Agent", prose_review: "正文审查 Agent", logic_review: "逻辑审查 Agent" };
@@ -59,17 +71,29 @@ export function ModernApp() {
     if (projectId) localStorage.setItem("novel-studio:modern-project", projectId);
     else localStorage.removeItem("novel-studio:modern-project");
   }, [projectId]);
-  return projectId ? <ModernWorkspace projectId={projectId} onBack={() => setProjectId("")} /> : <ModernLibrary onOpen={setProjectId} />;
+  const handleProjectDeleted = (id: string) => {
+    setProjectId((current) => current === id ? "" : current);
+  };
+  return projectId ? <ModernWorkspace key={projectId} projectId={projectId} onBack={() => setProjectId("")} /> : <ModernLibrary onOpen={setProjectId} onProjectDeleted={handleProjectDeleted} />;
 }
 
-function ModernLibrary({ onOpen }: { onOpen: (id: string) => void }) {
+function ModernLibrary({ onOpen, onProjectDeleted }: { onOpen: (id: string) => void; onProjectDeleted: (id: string) => void }) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<Project | null>(null);
   const [name, setName] = useState("");
   const projects = useQuery({ queryKey: ["modern-projects"], queryFn: () => api<Project[]>("/api/modern/projects") });
   const create = useMutation({
     mutationFn: () => api<Project>("/api/modern/projects", { method: "POST", body: JSON.stringify({ name }) }),
     onSuccess: (project) => { void queryClient.invalidateQueries({ queryKey: ["modern-projects"] }); onOpen(project.id); setName(""); setCreating(false); },
+  });
+  const deleteProject = useMutation({
+    mutationFn: (project: Project) => api(`/api/modern/projects/${project.id}`, { method: "DELETE", body: JSON.stringify({ confirm: true }) }),
+    onSuccess: (_, project) => {
+      onProjectDeleted(project.id);
+      setDeleting(null);
+      void queryClient.invalidateQueries({ queryKey: ["modern-projects"] });
+    },
   });
   return <main className="modern-library">
     <header className="modern-library-header">
@@ -81,9 +105,26 @@ function ModernLibrary({ onOpen }: { onOpen: (id: string) => void }) {
       {projects.isLoading && <div className="modern-empty"><span className="modern-spinner" />读取作品库</div>}
       {projects.error && <div className="modern-alert error"><CircleAlert size={15} />{projects.error.message}</div>}
       {!projects.isLoading && projects.data?.length === 0 && <div className="modern-empty large"><FolderOpen size={38} /><strong>还没有作品</strong><span>新建作品后，主 Agent 会成为你的唯一入口。</span><button className="modern-button solid" onClick={() => setCreating(true)}><FilePlus2 size={15} />创建第一部作品</button></div>}
-      <div className="modern-project-grid">{projects.data?.map((project) => <button className="modern-project-card" key={project.id} onClick={() => onOpen(project.id)}><span className="modern-project-icon"><BookOpen size={22} /></span><span><strong>{project.name}</strong><small>本地项目 · {new Date(project.updatedAt).toLocaleDateString("zh-CN")}</small></span><ChevronRight size={17} /></button>)}</div>
+      <div className="modern-project-grid">{projects.data?.map((project) => (
+        <div className="modern-project-card" key={project.id}>
+          <button type="button" className="modern-project-card-open" onClick={() => onOpen(project.id)}>
+            <span className="modern-project-icon"><BookOpen size={22} /></span>
+            <span><strong>{project.name}</strong><small>本地项目 · {new Date(project.updatedAt).toLocaleDateString("zh-CN")}</small></span>
+            <ChevronRight size={17} />
+          </button>
+          <button type="button" className="modern-icon-button danger modern-project-delete" title="删除作品" aria-label={`删除作品 ${project.name}`} disabled={deleteProject.isPending && deleting?.id === project.id} onClick={() => setDeleting(project)}><Trash2 size={15} /></button>
+        </div>
+      ))}</div>
     </section>
     {creating && <div className="modern-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="modern-modal" onSubmit={(event) => { event.preventDefault(); create.mutate(); }}><header><div><span className="modern-eyebrow">NEW PROJECT</span><h2>新建作品</h2><p>先建立隔离边界，其他内容可以在对话中逐步形成。</p></div><button type="button" className="modern-icon-button" onClick={() => setCreating(false)}><X size={17} /></button></header><label className="modern-field"><span>作品名称</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：雾城档案" required /></label>{create.error && <div className="modern-alert error">{create.error.message}</div>}<footer><button type="button" className="modern-button ghost" onClick={() => setCreating(false)}>取消</button><button className="modern-button solid" disabled={create.isPending || !name.trim()}>{create.isPending ? "创建中" : "创建作品"}</button></footer></form></div>}
+    {deleting && <div className="modern-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleteProject.isPending) setDeleting(null); }}>
+      <div className="modern-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-project-title">
+        <header><div><span className="modern-eyebrow">DELETE PROJECT</span><h2 id="delete-project-title">删除作品</h2><p>将删除该作品的资料、记忆、会话、任务和审查记录，且无法撤销。</p></div><button type="button" className="modern-icon-button" title="取消删除" disabled={deleteProject.isPending} onClick={() => setDeleting(null)}><X size={17} /></button></header>
+        <div className="modern-delete-target"><strong>{deleting.name}</strong><span>本地项目 · {new Date(deleting.updatedAt).toLocaleDateString("zh-CN")}</span></div>
+        {deleteProject.error && <div className="modern-alert error"><CircleAlert size={15} />{deleteProject.error.message}</div>}
+        <footer><button type="button" className="modern-button ghost" disabled={deleteProject.isPending} onClick={() => setDeleting(null)}>取消</button><button type="button" className="modern-button solid modern-delete-confirm" disabled={deleteProject.isPending} onClick={() => deleteProject.mutate(deleting)}>{deleteProject.isPending ? "删除中" : "确认删除"}</button></footer>
+      </div>
+    </div>}
   </main>;
 }
 
@@ -91,30 +132,163 @@ function ModernWorkspace({ projectId, onBack }: { projectId: string; onBack: () 
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>("chat");
   const [sessionId, setSessionId] = useState("");
+  const [reasoningEffortError, setReasoningEffortError] = useState<ApiError | null>(null);
+  const [deletingSession, setDeletingSession] = useState<Session | null>(null);
   const project = useQuery({ queryKey: ["modern-project", projectId], queryFn: () => api<Project>(`/api/modern/projects/${projectId}`) });
   const sessions = useQuery({ queryKey: ["modern-sessions", projectId], queryFn: () => api<Session[]>(`/api/modern/projects/${projectId}/sessions`) });
-  const createSession = useMutation({ mutationFn: () => api<Session>(`/api/modern/projects/${projectId}/sessions`, { method: "POST", body: JSON.stringify({ title: "新会话" }) }), onSuccess: (session) => { setSessionId(session.id); void queryClient.invalidateQueries({ queryKey: ["modern-sessions", projectId] }); setView("chat"); } });
+  const createSession = useMutation({
+    mutationFn: () => api<Session>(`/api/modern/projects/${projectId}/sessions`, { method: "POST", body: JSON.stringify({ title: "新会话" }) }),
+    onSuccess: (session) => {
+      queryClient.setQueryData<Session[]>(["modern-sessions", projectId], (old) => [session, ...(old ?? []).filter((entry) => entry.id !== session.id)]);
+      setSessionId(session.id);
+      void queryClient.invalidateQueries({ queryKey: ["modern-sessions", projectId] });
+      setView("chat");
+    },
+  });
+  const deleteSession = useMutation({
+    mutationFn: (session: Session) => api(`/api/modern/projects/${projectId}/sessions/${session.id}`, { method: "DELETE", body: JSON.stringify({ confirm: true }) }),
+    onSuccess: (_, session) => {
+      const remaining = (sessions.data ?? []).filter((entry) => entry.id !== session.id);
+      setSessionId((current) => current === session.id ? (remaining[0]?.id ?? "") : current);
+      setDeletingSession(null);
+      void queryClient.invalidateQueries({ queryKey: ["modern-sessions", projectId] });
+    },
+  });
   useEffect(() => { if (!sessionId && sessions.data?.[0]) setSessionId(sessions.data[0].id); }, [sessionId, sessions.data]);
+  useEffect(() => {
+    if (sessionId && sessions.data && !sessions.data.some((session) => session.id === sessionId)) {
+      setSessionId(sessions.data[0]?.id ?? "");
+    }
+  }, [sessionId, sessions.data]);
   const nav: Array<{ id: View; label: string; icon: typeof MessageSquareText }> = [
     { id: "chat", label: "主 Agent", icon: MessageSquareText }, { id: "files", label: "项目资料", icon: FileText }, { id: "memory", label: "AI 记忆", icon: Brain }, { id: "reviews", label: "审查记录", icon: ShieldCheck }, { id: "tasks", label: "任务运行", icon: History }, { id: "agents", label: "Agent 设置", icon: Bot }, { id: "models", label: "模型配置", icon: SlidersHorizontal },
   ];
   if (project.isLoading || sessions.isLoading) return <div className="modern-loading"><BookOpen size={26} /><span>打开工作区</span></div>;
   if (project.error || !project.data) return <div className="modern-loading"><CircleAlert size={26} /><span>无法打开作品</span><button className="modern-button ghost" onClick={onBack}>返回作品库</button></div>;
   return <main className="modern-workspace">
-    <aside className="modern-sidebar"><header className="modern-sidebar-brand"><button className="modern-icon-button" title="返回作品库" onClick={onBack}><ArrowLeft size={17} /></button><span className="modern-brand-mark small"><BookOpen size={17} /></span><strong>Novel Studio</strong></header><div className="modern-project-identity"><span className="modern-eyebrow">PROJECT</span><h1>{project.data.name}</h1><span className="modern-local-status"><i />本地已连接</span></div><nav className="modern-nav">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}><Icon size={16} />{item.label}</button>; })}</nav>{view === "chat" && <section className="modern-session-list"><div className="modern-subhead"><span>会话</span><button className="modern-icon-button" title="新建会话" onClick={() => createSession.mutate()}><Plus size={15} /></button></div>{sessions.data?.map((session) => <button key={session.id} className={session.id === sessionId ? "active" : ""} onClick={() => setSessionId(session.id)}><MessageSquareText size={14} /><span>{session.title || "未命名会话"}</span></button>)}</section>}<footer className="modern-sidebar-footer"><span><TerminalSquare size={14} />本地数据隔离</span><small>每个作品拥有独立上下文</small></footer></aside>
-    <section className="modern-main"><header className="modern-topbar"><div><span className="modern-eyebrow">{nav.find((item) => item.id === view)?.label}</span><h2>{view === "chat" ? "和主 Agent 讨论" : nav.find((item) => item.id === view)?.label}</h2></div><div className="modern-top-actions"><button className="modern-icon-button" title="搜索" onClick={() => setView("files")}><Search size={17} /></button><span className="modern-command"><Sparkles size={14} />现代纵切</span></div></header>{view === "chat" && sessionId && <ChatPane projectId={projectId} sessionId={sessionId} />}{view === "files" && <FilesPane projectId={projectId} />}{view === "memory" && <MemoryPane projectId={projectId} />}{view === "reviews" && <ReviewsPane projectId={projectId} />}{view === "tasks" && <TasksPane projectId={projectId} />}{view === "agents" && <AgentsPane projectId={projectId} />}{view === "models" && <ModelsPane />}</section>
+    <aside className="modern-sidebar"><header className="modern-sidebar-brand"><button className="modern-icon-button" title="返回作品库" onClick={onBack}><ArrowLeft size={17} /></button><span className="modern-brand-mark small"><BookOpen size={17} /></span><strong>Novel Studio</strong></header><div className="modern-project-identity"><span className="modern-eyebrow">PROJECT</span><h1>{project.data.name}</h1><span className="modern-local-status"><i />本地已连接</span></div><nav className="modern-nav">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}><Icon size={16} />{item.label}</button>; })}</nav>{view === "chat" && <section className="modern-session-list"><div className="modern-subhead"><span>会话</span><button className="modern-icon-button" title="新建会话" onClick={() => createSession.mutate()}><Plus size={15} /></button></div>{sessions.data?.map((session) => <div className="modern-session-row" key={session.id}><button type="button" className={session.id === sessionId ? "modern-session-open active" : "modern-session-open"} onClick={() => setSessionId(session.id)}><MessageSquareText size={14} /><span>{session.title || "未命名会话"}</span></button><button type="button" className="modern-icon-button danger modern-session-delete" title="删除会话" aria-label={`删除会话 ${session.title || "未命名会话"}`} disabled={deleteSession.isPending && deletingSession?.id === session.id} onClick={() => setDeletingSession(session)}><Trash2 size={13} /></button></div>)}</section>}<footer className="modern-sidebar-footer"><span><TerminalSquare size={14} />本地数据隔离</span><small>每个作品拥有独立上下文</small></footer></aside>
+    <section className="modern-main"><header className="modern-topbar"><div><span className="modern-eyebrow">{nav.find((item) => item.id === view)?.label}</span><h2>{view === "chat" ? "和主 Agent 讨论" : nav.find((item) => item.id === view)?.label}</h2></div><div className="modern-top-actions"><button className="modern-icon-button" title="搜索" onClick={() => setView("files")}><Search size={17} /></button><span className="modern-command"><Sparkles size={14} />现代纵切</span></div></header>{view === "chat" && sessionId && <ChatPane projectId={projectId} sessionId={sessionId} onReasoningEffortError={setReasoningEffortError} onOpenSettings={(target) => setView(target)} />}{view === "chat" && !sessionId && <div className="modern-pane"><div className="modern-empty large"><MessageSquareText size={34} /><strong>还没有会话</strong><span>新建一个会话开始讨论。</span><button className="modern-button solid" onClick={() => createSession.mutate()}><Plus size={15} />新建会话</button></div></div>}{view === "files" && <FilesPane projectId={projectId} />}{view === "memory" && <MemoryPane projectId={projectId} />}{view === "reviews" && <ReviewsPane projectId={projectId} />}{view === "tasks" && <TasksPane projectId={projectId} />}{view === "agents" && <AgentsPane projectId={projectId} />}{view === "models" && <ModelsPane />}</section>
+    {reasoningEffortError && <div className="modern-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setReasoningEffortError(null); }}>
+      <div className="modern-modal" role="alertdialog" aria-modal="true" aria-labelledby="reasoning-error-title">
+        <header><div><span className="modern-eyebrow">MODEL COMPATIBILITY</span><h2 id="reasoning-error-title">推理强度不受支持</h2><p>当前模型配置无法使用所选推理强度，请调整模型配置后再继续。</p></div><button type="button" className="modern-icon-button" title="关闭" onClick={() => setReasoningEffortError(null)}><X size={17} /></button></header>
+        <div className="modern-reasoning-detail">
+          <span>推理强度：{((reasoningEffortError.detail as ReasoningEffortErrorDetail | undefined)?.reasoningEffort) ?? "未知"}</span>
+          <span>模型配置：{((reasoningEffortError.detail as ReasoningEffortErrorDetail | undefined)?.configName ?? (reasoningEffortError.detail as ReasoningEffortErrorDetail | undefined)?.model) ?? "未知"}</span>
+          {(reasoningEffortError.detail as ReasoningEffortErrorDetail | undefined)?.providerMessage && <small>供应商信息：{(reasoningEffortError.detail as ReasoningEffortErrorDetail).providerMessage}</small>}
+        </div>
+        <footer><button type="button" className="modern-button ghost" onClick={() => setReasoningEffortError(null)}>知道了</button><button type="button" className="modern-button solid" onClick={() => { setReasoningEffortError(null); setView("models"); }}>调整模型配置</button></footer>
+      </div>
+    </div>}
+    {deletingSession && <div className="modern-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deleteSession.isPending) setDeletingSession(null); }}>
+      <div className="modern-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-session-title">
+        <header><div><span className="modern-eyebrow">DELETE SESSION</span><h2 id="delete-session-title">删除会话</h2><p>将删除该会话中的消息记录，且无法撤销。</p></div><button type="button" className="modern-icon-button" title="取消删除" disabled={deleteSession.isPending} onClick={() => setDeletingSession(null)}><X size={17} /></button></header>
+        <div className="modern-delete-target"><strong>{deletingSession.title || "未命名会话"}</strong><span>会话内的消息将被删除</span></div>
+        {deleteSession.error && <div className="modern-alert error"><CircleAlert size={15} />{deleteSession.error.message}</div>}
+        <footer><button type="button" className="modern-button ghost" disabled={deleteSession.isPending} onClick={() => setDeletingSession(null)}>取消</button><button type="button" className="modern-button solid modern-delete-confirm" disabled={deleteSession.isPending} onClick={() => deleteSession.mutate(deletingSession)}>{deleteSession.isPending ? "删除中" : "确认删除"}</button></footer>
+      </div>
+    </div>}
   </main>;
 }
 
-function ChatPane({ projectId, sessionId }: { projectId: string; sessionId: string }) {
+function ChatPane({ projectId, sessionId, onReasoningEffortError, onOpenSettings }: { projectId: string; sessionId: string; onReasoningEffortError: (error: ApiError) => void; onOpenSettings: (target: "agents" | "models") => void }) {
   const queryClient = useQueryClient();
   const [text, setText] = useState("");
   const [context, setContext] = useState<ContextItem[]>([]);
-  const messages = useQuery({ queryKey: ["modern-messages", projectId, sessionId], queryFn: () => api<Message[]>(`/api/modern/projects/${projectId}/sessions/${sessionId}/messages`) });
+  const [configNotice, setConfigNotice] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [pendingSessionIds, setPendingSessionIds] = useState<Set<string>>(() => new Set());
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const messages = useQuery({
+    queryKey: ["modern-messages", projectId, sessionId],
+    queryFn: () => api<Message[]>(`/api/modern/projects/${projectId}/sessions/${sessionId}/messages`),
+    staleTime: pendingSessionIds.has(sessionId) ? Infinity : undefined,
+    refetchOnWindowFocus: pendingSessionIds.has(sessionId) ? false : undefined,
+  });
   const tasks = useQuery({ queryKey: ["modern-tasks", projectId], queryFn: () => api<Task[]>(`/api/modern/projects/${projectId}/tasks`) });
-  const send = useMutation({ mutationFn: (content: string) => api<{ assistant: Message; context: ContextItem[] }>(`/api/modern/projects/${projectId}/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ content }) }), onSuccess: (result) => { setContext(result.context); setText(""); void queryClient.invalidateQueries({ queryKey: ["modern-messages", projectId, sessionId] }); void queryClient.invalidateQueries({ queryKey: ["modern-tasks", projectId] }); } });
+  const models = useQuery({ queryKey: ["modern-models"], queryFn: () => api<ModelConfig[]>("/api/modern/models") });
+  const messagesKey = ["modern-messages", projectId, sessionId] as const;
+  useEffect(() => {
+    setText("");
+    setContext([]);
+    setConfigNotice(null);
+    setSendError(null);
+  }, [sessionId]);
+  const send = useMutation({
+    mutationFn: (content: string) => api<ChatResponse>(`/api/modern/projects/${projectId}/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
+    onMutate: async (content) => {
+      setPendingSessionIds((current) => new Set(current).add(sessionId));
+      setText("");
+      setConfigNotice(null);
+      setSendError(null);
+      await queryClient.cancelQueries({ queryKey: messagesKey });
+      const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const optimistic: Message = {
+        id: optimisticId,
+        sessionId,
+        role: "user",
+        content,
+        createdAt: new Date().toISOString(),
+      };
+      const previous = queryClient.getQueryData<Message[]>(messagesKey);
+      queryClient.setQueryData<Message[]>(messagesKey, (old) => [...(old ?? []), optimistic]);
+      return { optimisticId, previous, draft: content, projectId, sessionId, messagesKey };
+    },
+    onSuccess: (result, _content, context) => {
+      const key = context?.messagesKey ?? messagesKey;
+      const persistedIds = new Set<string>([result.userMessage.id, result.assistant?.id].filter((id): id is string => Boolean(id)));
+      queryClient.setQueryData<Message[]>(key, (old) => {
+        const remaining = (old ?? []).filter((message) => message.id !== context?.optimisticId && !persistedIds.has(message.id));
+        return [...remaining, result.userMessage, ...(result.assistant ? [result.assistant] : [])];
+      });
+      if (context?.projectId && result.session) {
+        queryClient.setQueryData<Session[]>(["modern-sessions", context.projectId], (old) => (old ?? []).map((session) => session.id === result.session.id ? result.session : session));
+      }
+      if (context?.sessionId === sessionId) {
+        setContext(result.context);
+        setConfigNotice(result.notice?.code === "model_not_configured" ? result.notice.message : null);
+        setSendError(null);
+      }
+      if (context?.sessionId) setPendingSessionIds((current) => { const next = new Set(current); next.delete(context.sessionId!); return next; });
+    },
+    onError: async (error, _content, context) => {
+      const key = context?.messagesKey ?? messagesKey;
+      queryClient.setQueryData<Message[]>(key, (old) => (old ?? []).filter((message) => message.id !== context?.optimisticId));
+      if (context?.sessionId) setPendingSessionIds((current) => { const next = new Set(current); next.delete(context.sessionId!); return next; });
+      if (error instanceof ApiError && error.code === "reasoning_effort_unsupported") {
+        if (context?.sessionId === sessionId) {
+          setText((current) => current.trim() ? current : (context?.draft ?? ""));
+        }
+        onReasoningEffortError(error);
+        return;
+      }
+      await queryClient.refetchQueries({ queryKey: key });
+      if (context?.sessionId === sessionId) {
+        const persisted = queryClient.getQueryData<Message[]>(key)?.some((message) => message.role === "user" && message.content === context?.draft) ?? false;
+        setText((current) => current.trim() ? current : (persisted ? "" : (context?.draft ?? "")));
+        setSendError(formatSendFailure(error, persisted));
+      }
+      void queryClient.invalidateQueries({ queryKey: ["modern-sessions", context?.projectId ?? projectId] });
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.sessionId) setPendingSessionIds((current) => { const next = new Set(current); next.delete(context.sessionId!); return next; });
+      void queryClient.invalidateQueries({ queryKey: ["modern-tasks", context?.projectId ?? projectId] });
+    },
+  });
+  const sending = send.isPending && pendingSessionIds.has(sessionId);
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  }, [messages.data?.length, sessionId, sending]);
   const activeTasks = tasks.data?.filter((task) => task.status === "running" || task.status === "queued").slice(0, 4) ?? [];
-  return <div className="modern-chat-layout"><section className="modern-chat"><div className="modern-chat-scroll">{messages.data?.length === 0 && <div className="modern-chat-empty"><span className="modern-chat-orb"><Sparkles size={22} /></span><h3>从一句话开始</h3><p>主 Agent 会先理解你的意图，再决定是否调用正文、审查或记忆相关 Agent。</p></div>}{messages.data?.map((message) => <article key={message.id} className={`modern-message ${message.role === "user" ? "user" : "agent"}`}><div className="modern-message-meta"><span>{message.role === "user" ? "你" : "主 Agent"}</span><time>{new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time></div><div className="modern-message-body">{message.content}</div></article>)}</div><form className="modern-composer" onSubmit={(event) => { event.preventDefault(); if (text.trim() && !send.isPending) send.mutate(text.trim()); }}><textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="告诉主 Agent 你想讨论、规划或修改什么…" rows={3} /><footer><span>Enter 发送 · Shift Enter 换行</span><button className="modern-send" disabled={!text.trim() || send.isPending} title="发送"><Send size={16} /></button></footer></form></section><aside className="modern-inspector"><div className="modern-inspector-head"><div><span className="modern-eyebrow">CONTEXT GATE</span><h3>本轮记忆</h3></div><Brain size={17} /></div>{send.isPending && <div className="modern-inspector-loading"><span className="modern-spinner" />上下文 Agent 正在筛选</div>}{context.length > 0 ? <div className="modern-context-list">{context.map((item) => <div className="modern-context-item" key={item.id}><span className={`modern-layer-dot ${item.layer}`} /><div><strong>{item.title}</strong><small>{item.layer} · {item.fullText ? "已读正文" : "简介卡"}</small></div></div>)}</div> : <div className="modern-inspector-empty">发送消息后，这里会显示本轮被选中的记忆和资料。</div>}{activeTasks.length > 0 && <div className="modern-task-strip"><span className="modern-eyebrow">RUNNING</span>{activeTasks.map((task) => <div key={task.id}><span className="modern-status-dot" /><span>{agentLabels[task.targetAgent] ?? task.targetAgent}</span></div>)}</div>}</aside></div>;
+  const hasModelConfigs = Boolean(models.data?.length);
+  const noticeText = models.isSuccess
+    ? hasModelConfigs
+      ? "主 Agent 尚未绑定模型，请到 Agent 设置完成绑定。"
+      : "还没有模型配置，请先创建模型配置。"
+    : "请先为「主 Agent」配置模型，再继续对话。";
+  const noticeTarget = models.isSuccess && hasModelConfigs ? "agents" : "models";
+  const noticeAction = models.isSuccess && hasModelConfigs ? "去绑定" : "去配置";
+  return <div className="modern-chat-layout"><section className="modern-chat"><div className="modern-chat-scroll" ref={scrollRef}>{messages.data?.length === 0 && <div className="modern-chat-empty"><span className="modern-chat-orb"><Sparkles size={22} /></span><h3>从一句话开始</h3><p>主 Agent 会先理解你的意图，再决定是否调用正文、审查或记忆相关 Agent。</p></div>}{messages.data?.map((message) => <article key={message.id} className={`modern-message ${message.role === "user" ? "user" : "agent"}`}><div className="modern-message-meta"><span>{message.role === "user" ? "你" : "主 Agent"}</span><time>{new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time></div><div className="modern-message-body">{message.content}</div></article>)}</div>{configNotice && <div className="modern-notice" role="status"><CircleAlert size={14} /><span>{noticeText}</span><button type="button" className="modern-button ghost" onClick={() => onOpenSettings(noticeTarget)}>{noticeAction}</button><button type="button" className="modern-icon-button" title="关闭提示" aria-label="关闭配置提示" onClick={() => setConfigNotice(null)}><X size={15} /></button></div>}{sending && <div className="modern-processing" role="status" aria-live="polite"><span className="modern-spinner" />正在整理上下文并生成回复，请勿重复发送</div>}{sendError && <div className="modern-alert error modern-send-error" role="alert"><CircleAlert size={15} /><span>发送失败：{sendError}</span>{text.trim() && <button type="button" className="modern-button ghost" onClick={() => send.mutate(text.trim())}>重试</button>}<button type="button" className="modern-icon-button" title="关闭错误" aria-label="关闭发送错误" onClick={() => setSendError(null)}><X size={15} /></button></div>}<form className="modern-composer" onSubmit={(event) => { event.preventDefault(); if (text.trim() && !sending) send.mutate(text.trim()); }}><textarea disabled={sending} value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (sending) { event.preventDefault(); return; } if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="告诉主 Agent 你想讨论、规划或修改什么…" rows={3} /><footer><span>Enter 发送 · Shift Enter 换行</span><button className="modern-send" disabled={!text.trim() || sending} title="发送"><Send size={16} /></button></footer></form></section><aside className="modern-inspector"><div className="modern-inspector-head"><div><span className="modern-eyebrow">CONTEXT GATE</span><h3>本轮记忆</h3></div><Brain size={17} /></div>{sending && <div className="modern-inspector-loading"><span className="modern-spinner" />上下文 Agent 正在筛选</div>}{context.length > 0 ? <div className="modern-context-list">{context.map((item) => <div className="modern-context-item" key={item.id}><span className={`modern-layer-dot ${item.layer}`} /><div><strong>{item.title}</strong><small>{item.layer} · {item.fullText ? "已读正文" : "简介卡"}</small></div></div>)}</div> : <div className="modern-inspector-empty">发送消息后，这里会显示本轮被选中的记忆和资料。</div>}{activeTasks.length > 0 && <div className="modern-task-strip"><span className="modern-eyebrow">RUNNING</span>{activeTasks.map((task) => <div key={task.id}><span className="modern-status-dot" /><span>{agentLabels[task.targetAgent] ?? task.targetAgent}</span></div>)}</div>}</aside></div>;
 }
 
 function FilesPane({ projectId }: { projectId: string }) {
@@ -127,7 +301,7 @@ function FilesPane({ projectId }: { projectId: string }) {
   const sources = useQuery({ queryKey: ["modern-sources", projectId, area, kind], queryFn: () => api<SourceFile[]>(`/api/modern/projects/${projectId}/sources?area=${area}${kind === "all" ? "" : `&kind=${kind}`}`) });
   const create = useMutation({ mutationFn: () => api<SourceFile>(`/api/modern/projects/${projectId}/sources`, { method: "POST", body: JSON.stringify({ ...form, area }) }), onSuccess: (file) => { setCreating(false); setForm({ kind: "setting", title: "", content: "" }); setSelected(file); void queryClient.invalidateQueries({ queryKey: ["modern-sources", projectId] }); } });
   const promote = useMutation({ mutationFn: (fileId: string) => api(`/api/modern/projects/${projectId}/sources/${fileId}/promote`, { method: "POST", body: JSON.stringify({}) }), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["modern-sources", projectId] }); void queryClient.invalidateQueries({ queryKey: ["modern-memory", projectId] }); } });
-  return <div className="modern-pane"><header className="modern-pane-head"><div><span className="modern-eyebrow">SOURCE MATERIAL</span><h3>项目资料</h3><p>人类可读的正文、设定和规划，和 AI 记忆分开保存。</p></div><button className="modern-button solid" onClick={() => setCreating(true)}><Plus size={15} />新建文件</button></header><div className="modern-toolbar"><div className="modern-segmented"><button className={area === "draft" ? "active" : ""} onClick={() => setArea("draft")}>草稿</button><button className={area === "formal" ? "active" : ""} onClick={() => setArea("formal")}>正式</button></div><select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="all">全部类型</option><option value="prose">正文</option><option value="setting">设定</option><option value="outline">规划</option></select></div><div className="modern-file-layout"><div className="modern-file-list">{sources.data?.length === 0 && <div className="modern-list-empty">这里还没有{area === "draft" ? "草稿" : "正式资料"}。</div>}{sources.data?.map((file) => <button key={file.id} className={selected?.id === file.id ? "active" : ""} onClick={() => setSelected(file)}><span className="modern-file-kind">{kindLabels[file.kind]}</span><span><strong>{file.title}</strong><small>{file.content.length.toLocaleString()} 字 · {new Date(file.updatedAt).toLocaleDateString("zh-CN")}</small></span><ChevronRight size={15} /></button>)}</div><div className="modern-file-preview">{selected ? <><div className="modern-preview-head"><div><span className="modern-file-kind">{kindLabels[selected.kind]} · {selected.area === "draft" ? "草稿" : "正式"}</span><h4>{selected.title}</h4></div>{selected.area === "draft" && <button className="modern-button ghost" onClick={() => { if (window.confirm("先完成初审并生成 AI 记忆，再转入正式区？")) promote.mutate(selected.id); }}><GitBranch size={14} />转为正式</button>}</div><pre className="modern-file-content">{selected.content || "（空文件）"}</pre>{promote.error && <div className="modern-alert error">{promote.error.message}</div>}</> : <div className="modern-preview-empty"><FileText size={26} /><span>选择一个文件查看内容</span></div>}</div></div>{creating && <div className="modern-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="modern-modal wide" onSubmit={(event) => { event.preventDefault(); create.mutate(); }}><header><div><span className="modern-eyebrow">SOURCE FILE</span><h2>新建资料</h2></div><button type="button" className="modern-icon-button" onClick={() => setCreating(false)}><X size={17} /></button></header><div className="modern-form-grid"><label className="modern-field"><span>类型</span><select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as SourceFile["kind"] })}><option value="setting">设定</option><option value="outline">规划</option><option value="prose">正文</option></select></label><label className="modern-field"><span>标题</span><input autoFocus value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required /></label></div><label className="modern-field"><span>内容</span><textarea rows={12} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label><footer><button type="button" className="modern-button ghost" onClick={() => setCreating(false)}>取消</button><button className="modern-button solid" disabled={create.isPending}>{create.isPending ? "保存中" : "保存草稿"}</button></footer></form></div>}</div>;
+  return <div className="modern-pane"><header className="modern-pane-head"><div><span className="modern-eyebrow">SOURCE MATERIAL</span><h3>项目资料</h3><p>人类可读的正文、设定和规划，和 AI 记忆分开保存。</p></div><button className="modern-button solid" onClick={() => setCreating(true)}><Plus size={15} />新建文件</button></header><div className="modern-toolbar"><div className="modern-segmented"><button className={area === "draft" ? "active" : ""} onClick={() => setArea("draft")}>草稿</button><button className={area === "formal" ? "active" : ""} onClick={() => setArea("formal")}>正式</button></div><select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="all">全部类型</option><option value="prose">正文</option><option value="setting">设定</option><option value="outline">规划</option></select></div><div className="modern-file-layout"><div className="modern-file-list">{sources.data?.length === 0 && <div className="modern-list-empty">这里还没有{area === "draft" ? "草稿" : "正式资料"}。</div>}{sources.data?.map((file) => <button key={file.id} className={selected?.id === file.id ? "active" : ""} onClick={() => setSelected(file)}><span className="modern-file-kind">{kindLabels[file.kind]}</span><span><strong>{file.title}</strong><small>{file.content.length.toLocaleString()} 字 · {new Date(file.updatedAt).toLocaleDateString("zh-CN")}</small></span><ChevronRight size={15} /></button>)}</div><div className="modern-file-preview">{selected ? <><div className="modern-preview-head"><div><span className="modern-file-kind">{kindLabels[selected.kind]} · {selected.area === "draft" ? "草稿" : "正式"}</span><h4>{selected.title}</h4></div>{selected.area === "draft" && <button className="modern-button ghost" disabled={promote.isPending} onClick={() => { if (window.confirm("先完成初审并生成 AI 记忆，再转入正式区？")) promote.mutate(selected.id); }}><GitBranch size={14} />转为正式</button>}</div><pre className="modern-file-content">{selected.content || "（空文件）"}</pre>{promote.error && <div className="modern-alert error">{promote.error.message}</div>}</> : <div className="modern-preview-empty"><FileText size={26} /><span>选择一个文件查看内容</span></div>}</div></div>{creating && <div className="modern-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCreating(false); }}><form className="modern-modal wide" onSubmit={(event) => { event.preventDefault(); create.mutate(); }}><header><div><span className="modern-eyebrow">SOURCE FILE</span><h2>新建资料</h2></div><button type="button" className="modern-icon-button" onClick={() => setCreating(false)}><X size={17} /></button></header><div className="modern-form-grid"><label className="modern-field"><span>类型</span><select value={form.kind} onChange={(event) => setForm({ ...form, kind: event.target.value as SourceFile["kind"] })}><option value="setting">设定</option><option value="outline">规划</option><option value="prose">正文</option></select></label><label className="modern-field"><span>标题</span><input autoFocus value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required /></label></div><label className="modern-field"><span>内容</span><textarea rows={12} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label><footer><button type="button" className="modern-button ghost" onClick={() => setCreating(false)}>取消</button><button className="modern-button solid" disabled={create.isPending}>{create.isPending ? "保存中" : "保存草稿"}</button></footer></form></div>}</div>;
 }
 
 function MemoryPane({ projectId }: { projectId: string }) {
@@ -156,8 +330,14 @@ function AgentsPane({ projectId }: { projectId: string }) {
   const agents = useQuery({ queryKey: ["modern-agents", projectId], queryFn: () => api<AgentProfile[]>(`/api/modern/projects/${projectId}/agents`) });
   const prompts = useQuery({ queryKey: ["modern-agent-prompts", projectId], queryFn: () => api<Record<string, PromptBlock[]>>(`/api/modern/projects/${projectId}/agents/prompts`) });
   const [drafts, setDrafts] = useState<Record<string, { enabled: boolean; modelProfile: string; promptBlocks: PromptBlock[] }>>({});
+  const initialized = useRef(false);
   useEffect(() => {
-    if (!prompts.data) return;
+    initialized.current = false;
+    setDrafts({});
+  }, [projectId]);
+  useEffect(() => {
+    if (initialized.current || !prompts.data || !agents.data) return;
+    initialized.current = true;
     const next: Record<string, { enabled: boolean; modelProfile: string; promptBlocks: PromptBlock[] }> = {};
     for (const role of Object.keys(agentLabels)) {
       const profile = agents.data?.find((agent) => agent.role === role);
@@ -172,7 +352,7 @@ function AgentsPane({ projectId }: { projectId: string }) {
   const save = useMutation({
     mutationFn: (role: string) => {
       const draft = drafts[role] ?? { enabled: true, modelProfile: "", promptBlocks: [] as PromptBlock[] };
-      return api(`/api/modern/projects/${projectId}/agents/${role}`, {
+      return api<AgentProfile>(`/api/modern/projects/${projectId}/agents/${role}`, {
         method: "PUT",
         body: JSON.stringify({
           enabled: draft.enabled,
@@ -191,7 +371,18 @@ function AgentsPane({ projectId }: { projectId: string }) {
         }),
       });
     },
-    onSuccess: () => {
+    onSuccess: (profile, role) => {
+      setDrafts((current) => {
+        const draft = current[role] ?? { enabled: true, modelProfile: "", promptBlocks: [] as PromptBlock[] };
+        return {
+          ...current,
+          [role]: {
+            enabled: profile.enabled,
+            modelProfile: profile.modelProfile,
+            promptBlocks: profile.promptBlocks.map((block) => ({ ...block })),
+          },
+        };
+      });
       void queryClient.invalidateQueries({ queryKey: ["modern-agents", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["modern-agent-prompts", projectId] });
     },
@@ -322,8 +513,9 @@ function AgentsPane({ projectId }: { projectId: string }) {
                 ))}
                 <button type="button" className="modern-button ghost modern-add-block" onClick={() => addBlock(role)}><Plus size={13} />添加提示块</button>
               </div>
+              {save.error && <div className="modern-alert error"><CircleAlert size={15} />{save.error.message}</div>}
               <footer>
-                <button className="modern-button ghost" onClick={() => save.mutate(role)} disabled={save.isPending}><Check size={14} />保存 {agentLabels[role]}</button>
+                <button type="button" className="modern-button ghost" onClick={() => save.mutate(role)} disabled={save.isPending}>{save.isPending ? "保存中" : "保存"}<Check size={14} /></button>
               </footer>
             </article>
           );
@@ -441,9 +633,9 @@ function ModelsPane() {
           <div className="modern-form-grid modern-parameter-grid">
             <label className="modern-field"><span>Temperature</span><input type="number" min="0" max="2" step="0.05" value={form.temperature} onChange={(event) => setForm({ ...form, temperature: Number(event.target.value) })} /></label>
             <label className="modern-field"><span>Top P</span><input type="number" min="0" max="1" step="0.05" value={form.topP} onChange={(event) => setForm({ ...form, topP: Number(event.target.value) })} /></label>
-            <label className="modern-field"><span>推理强度</span><select value={form.reasoningEffort} onChange={(event) => setForm({ ...form, reasoningEffort: event.target.value as ModelConfig["reasoningEffort"] })}><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
-            <label className="modern-field"><span>上下文长度</span><input type="number" min="1024" max="2000000" step="1024" value={form.contextLength} onChange={(event) => setForm({ ...form, contextLength: Number(event.target.value) })} /><small>tokens</small></label>
-            <label className="modern-field"><span>最大回复长度</span><input type="number" min="256" max="100000" step="256" value={form.maxOutputTokens} onChange={(event) => setForm({ ...form, maxOutputTokens: Number(event.target.value) })} /><small>tokens</small></label>
+            <label className="modern-field"><span>推理强度</span><select value={form.reasoningEffort} onChange={(event) => setForm({ ...form, reasoningEffort: event.target.value as ModelConfig["reasoningEffort"] })}><option value="none">none</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="xhigh">xhigh</option><option value="max">max</option></select></label>
+            <label className="modern-field"><span>上下文长度</span><input type="number" min="1024" max="2000000" step="1" value={form.contextLength} onChange={(event) => setForm({ ...form, contextLength: Number(event.target.value) })} /><small>tokens</small></label>
+            <label className="modern-field"><span>最大回复长度</span><input type="number" min="256" max="100000" step="1" value={form.maxOutputTokens} onChange={(event) => setForm({ ...form, maxOutputTokens: Number(event.target.value) })} /><small>tokens</small></label>
           </div>
           {outputExceedsContext && <div className="modern-alert error"><CircleAlert size={15} />最大回复长度不能超过上下文长度。</div>}
         </section>
