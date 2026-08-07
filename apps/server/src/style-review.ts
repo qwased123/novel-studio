@@ -53,6 +53,22 @@ export function scanAiStyle(content: string): StyleRuleFinding[] {
     suggestion: "删去提示性转折词，让事件本身制造突发感。",
   });
 
+  const butConstruct = content.match(/不是[^。！？\n]{0,28}而是/g);
+  if (butConstruct?.length) findings.push({
+    severity: "medium",
+    title: `转折套句：不是……而是……（${butConstruct.length}处）`,
+    evidence: butConstruct[0]!.slice(0, 60),
+    suggestion: "删去正反对照外壳，改为直陈事实。",
+  });
+
+  const dashes = occurrences(content, "——");
+  if (dashes.length >= 3) findings.push({
+    severity: dashes.length >= 6 ? "high" : "medium",
+    title: `破折号滥用（${dashes.length}处）`,
+    evidence: excerptAt(content, dashes[0]!, 2),
+    suggestion: "破折号是 AI 高频符号，改用逗号、冒号或拆分为独立句子。",
+  });
+
   const ending = content.slice(-700);
   const uplift = ending.match(/(?:这一刻|直到此时|他终于).{0,36}(?:明白|懂得|意识到|清楚).{0,42}[。！？]?/s);
   if (uplift) findings.push({

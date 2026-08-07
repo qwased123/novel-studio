@@ -172,7 +172,7 @@ function StylePromptBox({ projectId }: { projectId: string }) {
       </header>
       <label className="modern-field">
         <span>文风描述（含 R18 场景的描写偏好）</span>
-        <textarea rows={8} value={text} onChange={(event) => setText(event.target.value)} placeholder={"叙事视角：\n目标读者：\n文风要求：\n（例：冷峻短句节奏；对话克制；性爱场景直白细腻、注重感官与心理层次……）"} />
+        <textarea rows={8} value={text} onChange={(event) => setText(event.target.value)} placeholder={"叙事视角：\n目标读者：\n文风要求：\n（参考维度：① 描写为情绪服务，对话是角色意志的表达；② 节奏：急处不仓促、缓处不拖沓；③ 情色场景：直白不隐喻，感官（视觉/触觉/气味/体液）与心理层次并重，或聚焦张力与情感；④ 信息差：角色认知有限，不写超出其视角的事；⑤ 对白：不写“冷冷地说”式语气描述）"} />
       </label>
       <footer className="modern-style-footer">
         <span>{dirty ? "有未保存的修改" : "已同步"} · {text.length.toLocaleString()} / 8,000 字</span>

@@ -134,6 +134,15 @@ describe("domain core", () => {
     expect(content).toContain("真正的答案");
   });
 
+  it("flags not-but constructs and overused dashes", () => {
+    const findings = scanAiStyle("她不是没有感情，而是不敢承认。\n\n他站在窗前——望着雨——心里想着——过去的事——无从说起。");
+    expect(findings.map((finding) => finding.title)).toEqual(expect.arrayContaining([
+      expect.stringContaining("不是……而是"),
+      expect.stringContaining("破折号"),
+    ]));
+    expect(scanAiStyle("她确实没有感情，只是不敢承认。").length).toBe(0);
+  });
+
   it("exports manuscripts, EPUB and a re-importable project bundle", async () => {
     const projectId = fixtureProject();
     const entity = createEntity(projectId, { type: "character", name: "顾遥", summary: "档案管理员", aliases: [], attributes: {}, visibility: "author" });
