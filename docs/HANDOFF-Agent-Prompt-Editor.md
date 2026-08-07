@@ -125,11 +125,11 @@ API 链路（`apps/server/src/modern-api.ts` 453-475 行）：
 
 按 §3.3 规格已落地并通过全部测试，落点如下：
 
-- **数据层**：`modern-store.ts` — `modern_style_prompts` 表（`initModernStore` 内创建）、`getStylePrompt` / `saveStylePrompt`（首次读取自动播种空行，无需迁移）、常量 `STYLE_PROMPT_BLOCK_NAME` / `STYLE_PROMPT_ROLES` / `STYLE_PROMPT_MAX_LENGTH`
-- **运行时注入**：`modern-store.ts` — `assembleRolePromptBlocks(projectId, role)`：writer/prose_review 且文风非空时，在最前面合成 system 块（position -1、createdAt 1970，保证排序最前）；**列表视图不合成**（UI 不会看到重复块）
-- **API**：`modern-api.ts` — `GET/PUT /api/modern/projects/:projectId/style-prompt`，zod 校验（≤8000，中文错误消息）
-- **前端**：`ModernApp.tsx` — `StylePromptBox` 组件（Agent 设置页顶部，textarea + 保存按钮 + 使用者徽标 + 未保存提示）；`modern.css` — `.modern-style-prompt` 系列样式
-- **测试**：`modern-store.test.ts`（注入角色限定、空文风不注入、长度限制）、`modern-api.test.ts`（端点读写 + 超长拒绝），共 44 个测试全绿
+- **数据层**：`modern-store.ts` — 全局文风库 `modern_style_presets(id, name, content, …)` + 项目选择表 `modern_project_style_selections(project_id, preset_id)`（`initModernStore` 内创建）；`listStylePresets` / `createStylePreset` / `updateStylePreset` / `deleteStylePreset` / `getProjectStylePreset` / `setProjectStylePreset`；启动时自动迁移旧版逐项目表 `modern_style_prompts`（非空内容归并为"默认文风"预设）并删除旧表；常量 `STYLE_PROMPT_BLOCK_NAME` / `STYLE_PROMPT_ROLES` / `STYLE_PROMPT_MAX_LENGTH`（8000）
+- **运行时注入**：`modern-store.ts` — `assembleRolePromptBlocks(projectId, role)`：writer/prose_review 且项目已激活文风时，在最前面合成 system 块（position -1、createdAt 1970，保证排序最前）；**列表视图不合成**（UI 不会看到重复块）
+- **API**：`modern-api.ts` — 全局库 `GET/POST /api/modern/style-presets`、`PUT/DELETE /api/modern/style-presets/:id`；项目选择 `GET/PUT /api/modern/projects/:projectId/style-preset`（GET 返回 `{active, presets}`），zod 校验（≤8000，中文错误消息）
+- **前端**：`ModernApp.tsx` — `StylePromptBox` 组件（Agent 设置页顶部）：文风下拉切换（切换即激活该项目选择）、新建（用当前内容另存）、删除（引用项目自动解除）、编辑（保存修改同步所有使用项目）、未激活/已激活状态提示；`modern.css` — `.modern-style-prompt` 系列样式
+- **测试**：`modern-store.test.ts`（全局库/项目选择/注入角色限定/跨项目复用/删除解除引用/长度限制）、`modern-api.test.ts`（端点全链路），共 45 个测试全绿
 - **注意**：`assembleRolePromptBlocks` 目前没有运行时调用方（writer/审查任务未接入）；任务执行接入时用它组装提示词即可自动获得文风注入。若接入时发现注入顺序需要调整（当前是"文风 → 角色职责 → 其余块"），改 `assembleRolePromptBlocks` 一处即可
 
 ### 3.4 相关既有机制（勿重复实现，注意边界）

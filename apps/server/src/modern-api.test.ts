@@ -183,28 +183,56 @@ describe("modern HTTP workflow", () => {
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer sk-discovery-secret");
   });
 
-  it("reads and saves the shared style prompt through the API", async () => {
+  it("manages a global style preset library and per-project selection through the API", async () => {
     const app = await modernApp();
     const project = await json<{ id: string }>(app, "/api/modern/projects", { method: "POST", body: { name: `文风-${crypto.randomUUID()}` } });
     const projectId = project.body.id;
 
-    const empty = await json<{ content: string }>(app, `/api/modern/projects/${projectId}/style-prompt`);
+    const empty = await json<{ active: null; presets: unknown[] }>(app, `/api/modern/projects/${projectId}/style-preset`);
     expect(empty.response.statusCode).toBe(200);
-    expect(empty.body.content).toBe("");
+    expect(empty.body.active).toBeNull();
+    expect(empty.body.presets).toEqual([]);
 
-    const saved = await json<{ content: string }>(app, `/api/modern/projects/${projectId}/style-prompt`, {
-      method: "PUT",
-      body: { content: "短句冷峻，性爱场景直白细腻。" },
+    const created = await json<{ id: string; name: string; content: string }>(app, "/api/modern/style-presets", {
+      method: "POST",
+      body: { name: "白话风", content: "短句冷峻，性爱场景直白细腻。" },
     });
-    expect(saved.response.statusCode).toBe(200);
-    expect(saved.body.content).toBe("短句冷峻，性爱场景直白细腻。");
+    expect(created.response.statusCode).toBe(200);
+    expect(created.body.name).toBe("白话风");
+    const presetId = created.body.id;
 
-    const loaded = await json<{ content: string }>(app, `/api/modern/projects/${projectId}/style-prompt`);
-    expect(loaded.body.content).toBe("短句冷峻，性爱场景直白细腻。");
+    const listed = await json<Array<{ id: string }>>(app, "/api/modern/style-presets");
+    expect(listed.body.some((preset) => preset.id === presetId)).toBe(true);
 
-    const oversized = await json<{ error: string }>(app, `/api/modern/projects/${projectId}/style-prompt`, {
+    const selected = await json<{ active: { id: string } | null }>(app, `/api/modern/projects/${projectId}/style-preset`, {
       method: "PUT",
-      body: { content: "x".repeat(8_001) },
+      body: { presetId },
+    });
+    expect(selected.response.statusCode).toBe(200);
+    expect(selected.body.active?.id).toBe(presetId);
+
+    const updated = await json<{ content: string }>(app, `/api/modern/style-presets/${presetId}`, {
+      method: "PUT",
+      body: { content: "短句冷峻，性爱直白。" },
+    });
+    expect(updated.body.content).toBe("短句冷峻，性爱直白。");
+    const after = await json<{ active: { content: string } | null }>(app, `/api/modern/projects/${projectId}/style-preset`);
+    expect(after.body.active?.content).toBe("短句冷峻，性爱直白。");
+
+    const cleared = await json<{ active: { id: string } | null }>(app, `/api/modern/projects/${projectId}/style-preset`, {
+      method: "PUT",
+      body: { presetId: null },
+    });
+    expect(cleared.body.active).toBeNull();
+
+    const removed = await json<{ ok: boolean }>(app, `/api/modern/style-presets/${presetId}`, { method: "DELETE" });
+    expect(removed.response.statusCode).toBe(200);
+    const finalList = await json<Array<{ id: string }>>(app, "/api/modern/style-presets");
+    expect(finalList.body.some((preset) => preset.id === presetId)).toBe(false);
+
+    const oversized = await json<{ error: string }>(app, "/api/modern/style-presets", {
+      method: "POST",
+      body: { name: "超长", content: "x".repeat(8_001) },
     });
     expect(oversized.response.statusCode).toBe(500);
     expect(oversized.body.error).toContain("长度限制");

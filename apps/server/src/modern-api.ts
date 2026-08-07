@@ -20,17 +20,19 @@ import {
   createReviewReport,
   createSession,
   createSourceFile,
+  createStylePreset,
   createTask,
   deleteMemoryEntry,
   deleteReviewReport,
+  deleteStylePreset,
   getAgentProfile,
   getCatalog,
   getMemoryEntry,
   getProject,
+  getProjectStylePreset,
   getSession,
   getSkill,
   getSourceFile,
-  getStylePrompt,
   initModernStore,
   listAgentProfiles,
   listAgentPromptBlocks,
@@ -41,13 +43,15 @@ import {
   listReviewReports,
   listSessions,
   listSourceFiles,
+  listStylePresets,
   listTasks,
   promoteSourceAtomically,
   saveAgentPromptBlocks,
-  saveStylePrompt,
+  setProjectStylePreset,
   updateSourceFile,
   updateMemoryEntry,
   updateReviewReport,
+  updateStylePreset,
   updateTask,
   upsertAgentProfile,
   upsertCatalog,
@@ -116,7 +120,15 @@ const agentSchema = z.object({
   promptBlocks: z.array(promptBlockSchema).max(200).optional(),
   modelProfile: z.string().max(120).default(""),
 });
-const stylePromptSchema = z.object({ content: z.string().max(8_000, "文风提示词超过长度限制（8000）") });
+const stylePresetSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  content: z.string().max(8_000, "文风提示词超过长度限制（8000）").default(""),
+});
+const stylePresetUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  content: z.string().max(8_000, "文风提示词超过长度限制（8000）").optional(),
+});
+const styleSelectionSchema = z.object({ presetId: z.string().max(128).nullable() });
 const modernModelConfigSchema = z.object({
   name: z.string().trim().min(1).max(200),
   provider: z.enum(["openai", "anthropic", "openai-compatible"]),
@@ -477,16 +489,30 @@ export async function registerModernRoutes(app: FastifyInstance) {
     return saveAgentPromptBlocks(projectId, request.params.role, body);
   });
 
-  app.get<{ Params: { projectId: string } }>("/api/modern/projects/:projectId/style-prompt", async (request) => {
-    const projectId = projectParams(request.params.projectId);
-    ensureProject(projectId);
-    return { content: getStylePrompt(projectId) };
+  app.get("/api/modern/style-presets", async () => listStylePresets());
+  app.post("/api/modern/style-presets", async (request) => {
+    const body = stylePresetSchema.parse(request.body);
+    return createStylePreset({ name: body.name, content: body.content });
   });
-  app.put<{ Params: { projectId: string } }>("/api/modern/projects/:projectId/style-prompt", async (request) => {
+  app.put<{ Params: { id: string } }>("/api/modern/style-presets/:id", async (request) => {
+    const body = stylePresetUpdateSchema.parse(request.body);
+    return updateStylePreset(request.params.id, body);
+  });
+  app.delete<{ Params: { id: string } }>("/api/modern/style-presets/:id", async (request) => {
+    deleteStylePreset(request.params.id);
+    return { ok: true };
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/modern/projects/:projectId/style-preset", async (request) => {
     const projectId = projectParams(request.params.projectId);
     ensureProject(projectId);
-    const body = stylePromptSchema.parse(request.body);
-    return { content: saveStylePrompt(projectId, body.content) };
+    return { active: getProjectStylePreset(projectId), presets: listStylePresets() };
+  });
+  app.put<{ Params: { projectId: string } }>("/api/modern/projects/:projectId/style-preset", async (request) => {
+    const projectId = projectParams(request.params.projectId);
+    ensureProject(projectId);
+    const body = styleSelectionSchema.parse(request.body);
+    return { active: setProjectStylePreset(projectId, body.presetId) };
   });
 
   app.get("/api/modern/models", async () => listModernModels());

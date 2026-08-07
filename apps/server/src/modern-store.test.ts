@@ -10,15 +10,17 @@ import {
   createReviewReport,
   createSession,
   createSourceFile,
+  createStylePreset,
   createTask,
   deleteMemoryEntry,
   deleteReviewReport,
+  deleteStylePreset,
   getAgentProfile,
   getCatalog,
   getProject,
+  getProjectStylePreset,
   getSkill,
   getSourceFile,
-  getStylePrompt,
   listAgentPromptBlocks,
   listAgentPromptBlocksByProject,
   listMemoryEntries,
@@ -27,13 +29,15 @@ import {
   listReviewReports,
   listSessions,
   listSourceFiles,
+  listStylePresets,
   listTasks,
   promoteSourceAtomically,
   saveAgentPromptBlocks,
-  saveStylePrompt,
+  setProjectStylePreset,
   updateMemoryEntry,
   updateReviewReport,
   updateSourceFile,
+  updateStylePreset,
   updateTask,
   upsertAgentProfile,
   upsertCatalog,
@@ -394,17 +398,20 @@ describe("modern store", () => {
     expect(blocked.promptBlocks.map((block) => block.name)).toEqual(["上下文 Agent 职责", "上下文职责", "输出要求"]);
   });
 
-  it("keeps one shared style prompt injected into writer and prose review blocks only", () => {
-    const project = projectId("style-prompt");
-    const other = projectId("style-prompt-other");
+  it("keeps a global style preset library with per-project selection injected into writer and prose review blocks only", () => {
+    const project = projectId("style-preset");
+    const other = projectId("style-preset-other");
     createProject({ id: project, name: "文风共用" });
     createProject({ id: other, name: "另一作品" });
 
-    expect(getStylePrompt(project)).toBe("");
-    expect(getStylePrompt(other)).toBe("");
-    saveStylePrompt(project, "冷峻短句，对话克制。");
-    expect(getStylePrompt(project)).toBe("冷峻短句，对话克制。");
-    expect(getStylePrompt(other)).toBe("");
+    expect(getProjectStylePreset(project)).toBeNull();
+    expect(listStylePresets()).toHaveLength(0);
+
+    const preset = createStylePreset({ name: "白话风", content: "冷峻短句，对话克制。" });
+    expect(listStylePresets().some((entry) => entry.id === preset.id)).toBe(true);
+    expect(setProjectStylePreset(project, preset.id)?.content).toBe("冷峻短句，对话克制。");
+    expect(getProjectStylePreset(project)?.name).toBe("白话风");
+    expect(getProjectStylePreset(other)).toBeNull();
 
     const writerBlocks = assembleRolePromptBlocks(project, "writer");
     const reviewBlocks = assembleRolePromptBlocks(project, "prose_review");
@@ -412,14 +419,27 @@ describe("modern store", () => {
     expect(writerBlocks[0]).toMatchObject({ name: STYLE_PROMPT_BLOCK_NAME, role: "system", content: "冷峻短句，对话克制。" });
     expect(reviewBlocks[0]?.name).toBe(STYLE_PROMPT_BLOCK_NAME);
     expect(mainBlocks.some((block) => block.name === STYLE_PROMPT_BLOCK_NAME)).toBe(false);
-    expect(writerBlocks[1]?.name).toBe("正文 Agent 职责");
-    expect(reviewBlocks[1]?.name).toBe("正文审查 Agent 职责");
-    // 列表视图不合成文风块，只出现在组装结果中
     expect(listAgentPromptBlocks(project, "writer").some((block) => block.name === STYLE_PROMPT_BLOCK_NAME)).toBe(false);
 
-    saveStylePrompt(project, "");
+    // 编辑全局预设 → 所有选择它的项目同步生效
+    updateStylePreset(preset.id, { content: "冷峻短句，性爱直白。" });
+    expect(getProjectStylePreset(project)?.content).toBe("冷峻短句，性爱直白。");
+
+    // 跨项目复用：同一预设可被多个项目选择
+    setProjectStylePreset(other, preset.id);
+    expect(getProjectStylePreset(other)?.name).toBe("白话风");
+    expect(assembleRolePromptBlocks(other, "writer")[0]?.content).toBe("冷峻短句，性爱直白。");
+
+    // 取消选择 → 不注入
+    setProjectStylePreset(project, null);
     expect(assembleRolePromptBlocks(project, "writer").some((block) => block.name === STYLE_PROMPT_BLOCK_NAME)).toBe(false);
 
-    expect(() => saveStylePrompt(project, "x".repeat(8_001))).toThrow(/超过长度限制/);
+    // 删除预设 → 所有引用它的项目解除选择
+    deleteStylePreset(preset.id);
+    expect(getProjectStylePreset(other)).toBeNull();
+    expect(listStylePresets()).toHaveLength(0);
+
+    expect(() => createStylePreset({ name: "超长", content: "x".repeat(8_001) })).toThrow(/超过长度限制/);
+    expect(() => setProjectStylePreset(project, "missing")).toThrow(/文风预设不存在/);
   });
 });

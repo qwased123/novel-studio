@@ -150,35 +150,91 @@ function TasksPane({ projectId }: { projectId: string }) {
   return <div className="modern-pane"><header className="modern-pane-head"><div><span className="modern-eyebrow">RUN LOG</span><h3>任务运行</h3><p>主 Agent拆出的任务、上下文选择和优先级结果都会留在这里。</p></div><History size={18} /></header><div className="modern-task-table"><div className="modern-task-row head"><span>Agent</span><span>任务</span><span>状态</span><span>时间</span></div>{tasks.data?.map((task) => <div className="modern-task-row" key={task.id}><span><Bot size={14} />{agentLabels[task.targetAgent] ?? task.targetAgent}</span><span>{task.type}</span><span><i className={`modern-status-dot ${task.status}`} />{task.status}</span><time>{new Date(task.createdAt).toLocaleTimeString("zh-CN")}</time></div>)}</div></div>;
 }
 
+interface StylePreset { id: string; name: string; content: string; createdAt: string; updatedAt: string }
+
 function StylePromptBox({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
-  const style = useQuery({ queryKey: ["modern-style-prompt", projectId], queryFn: () => api<{ content: string }>(`/api/modern/projects/${projectId}/style-prompt`) });
+  const data = useQuery({ queryKey: ["modern-style-preset", projectId], queryFn: () => api<{ active: StylePreset | null; presets: StylePreset[] }>(`/api/modern/projects/${projectId}/style-preset`) });
+  const [selectedId, setSelectedId] = useState("");
   const [text, setText] = useState("");
-  useEffect(() => { if (style.data) setText(style.data.content); }, [style.data]);
-  const save = useMutation({
-    mutationFn: () => api<{ content: string }>(`/api/modern/projects/${projectId}/style-prompt`, { method: "PUT", body: JSON.stringify({ content: text }) }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["modern-style-prompt", projectId] }); },
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const active = data.data?.active ?? null;
+  const presets = data.data?.presets ?? [];
+  const selected = presets.find((preset) => preset.id === selectedId) ?? active;
+  useEffect(() => {
+    if (!data.data) return;
+    const current = data.data.active ?? null;
+    setSelectedId(current?.id ?? "");
+    setText(current?.content ?? "");
+  }, [data.data]);
+  const invalidate = () => { void queryClient.invalidateQueries({ queryKey: ["modern-style-preset", projectId] }); };
+  const select = useMutation({
+    mutationFn: (presetId: string | null) => api<{ active: StylePreset | null }>(`/api/modern/projects/${projectId}/style-preset`, { method: "PUT", body: JSON.stringify({ presetId }) }),
+    onSuccess: () => invalidate(),
   });
-  const dirty = style.data !== undefined && text !== style.data.content;
+  const update = useMutation({
+    mutationFn: () => {
+      if (!selected) throw new Error("没有选中的文风");
+      return api<StylePreset>(`/api/modern/style-presets/${selected.id}`, { method: "PUT", body: JSON.stringify({ content: text }) });
+    },
+    onSuccess: () => invalidate(),
+  });
+  const create = useMutation({
+    mutationFn: () => api<StylePreset>("/api/modern/style-presets", { method: "POST", body: JSON.stringify({ name: newName.trim(), content: text }) }),
+    onSuccess: (preset) => { setNewName(""); setCreating(false); select.mutate(preset.id); },
+  });
+  const remove = useMutation({
+    mutationFn: () => {
+      if (!selected) throw new Error("没有选中的文风");
+      return api(`/api/modern/style-presets/${selected.id}`, { method: "DELETE" });
+    },
+    onSuccess: () => invalidate(),
+  });
+  const switchPreset = (id: string) => {
+    if (!id) { setSelectedId(""); setText(""); select.mutate(null); return; }
+    const preset = presets.find((entry) => entry.id === id);
+    setSelectedId(id);
+    setText(preset?.content ?? "");
+    if (id !== active?.id) select.mutate(id);
+  };
+  const dirty = selected !== undefined && selected !== null && text !== selected.content;
+  const error = select.error ?? update.error ?? create.error ?? remove.error;
   return (
     <section className="modern-style-prompt">
       <header className="modern-pane-head">
         <div>
           <span className="modern-eyebrow">SHARED STYLE</span>
           <h3>文风提示词</h3>
-          <p>正文生成与正文审查共用的唯一文风来源：编辑一次，两个 Agent 运行时注入同一份，不会出现生成与审查文风不一致。</p>
+          <p>全局文风库，每个项目选择一套激活；正文生成与正文审查共用同一份，不会出现生成与审查文风不一致。修改文风会同步到所有使用它的项目。</p>
         </div>
         <div className="modern-style-users"><SquarePen size={14} />正文 Agent · 正文审查 Agent</div>
       </header>
+      <div className="modern-style-toolbar">
+        <select value={selectedId} onChange={(event) => switchPreset(event.target.value)} aria-label="选择文风">
+          <option value="">（未选择文风）</option>
+          {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}{preset.id === active?.id ? " ✓" : ""}</option>)}
+        </select>
+        {creating ? (
+          <div className="modern-style-create">
+            <input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="文风名称，如：古风情色" onKeyDown={(event) => { if (event.key === "Enter" && newName.trim() && !create.isPending) create.mutate(); }} />
+            <button className="modern-button solid" disabled={create.isPending || !newName.trim()} onClick={() => create.mutate()}>{create.isPending ? "创建中" : "创建"}</button>
+            <button type="button" className="modern-icon-button" title="取消" onClick={() => setCreating(false)}><X size={14} /></button>
+          </div>
+        ) : (
+          <button type="button" className="modern-button ghost" onClick={() => setCreating(true)} title="用当前内容另存为新的全局文风"><Plus size={13} />新建文风</button>
+        )}
+        {selected && <button type="button" className="modern-button ghost danger" onClick={() => { if (window.confirm(`删除文风「${selected.name}」？使用它的项目将变为未选择状态。`)) remove.mutate(); }} disabled={remove.isPending}><Trash2 size={13} />删除</button>}
+      </div>
       <label className="modern-field">
-        <span>文风描述（含 R18 场景的描写偏好）</span>
-        <textarea rows={8} value={text} onChange={(event) => setText(event.target.value)} placeholder={"叙事视角：\n目标读者：\n文风要求：\n（参考维度：① 描写为情绪服务，对话是角色意志的表达；② 节奏：急处不仓促、缓处不拖沓；③ 情色场景：直白不隐喻，感官（视觉/触觉/气味/体液）与心理层次并重，或聚焦张力与情感；④ 信息差：角色认知有限，不写超出其视角的事；⑤ 对白：不写“冷冷地说”式语气描述）"} />
+        <span>{selected ? `正在编辑：${selected.name}${selected.id === active?.id ? "（本项目已激活）" : "（未激活，编辑不影响本项目，需切换激活）"}` : "尚未选择文风"}</span>
+        <textarea rows={8} value={text} onChange={(event) => setText(event.target.value)} disabled={!selected} placeholder={"叙事视角：\n目标读者：\n文风要求：\n（参考维度：① 描写为情绪服务，对话是角色意志的表达；② 节奏：急处不仓促、缓处不拖沓；③ 情色场景：直白不隐喻，感官（视觉/触觉/气味/体液）与心理层次并重，或聚焦张力与情感；④ 信息差：角色认知有限，不写超出其视角的事；⑤ 对白：不写“冷冷地说”式语气描述）"} />
       </label>
       <footer className="modern-style-footer">
-        <span>{dirty ? "有未保存的修改" : "已同步"} · {text.length.toLocaleString()} / 8,000 字</span>
-        <button className="modern-button solid" disabled={save.isPending || !dirty} onClick={() => save.mutate()}>{save.isPending ? "保存中" : "保存文风"}</button>
+        <span>{selected ? (dirty ? "有未保存的修改" : "已同步") : "选择或新建文风后即可编辑"} · {text.length.toLocaleString()} / 8,000 字</span>
+        <button className="modern-button solid" disabled={!selected || update.isPending || !dirty} onClick={() => update.mutate()}>{update.isPending ? "保存中" : "保存修改"}</button>
       </footer>
-      {save.error && <div className="modern-alert error">{save.error.message}</div>}
+      {error && <div className="modern-alert error">{error.message}</div>}
     </section>
   );
 }

@@ -1718,45 +1718,104 @@ export function saveAgentPromptBlocks(projectId: string, role: AgentRole, input:
   })();
 }
 
-// ---------- 文风提示词 ----------
+// ---------- 文风提示词（全局库 + 每项目选择） ----------
 
-function seedStylePrompt(projectId: string) {
-  sqlite.prepare(`
-    INSERT OR IGNORE INTO modern_style_prompts(project_id, content, created_at, updated_at)
-    VALUES (?, '', ?, ?)
-  `).run(projectId, isoNow(), isoNow());
+export interface StylePreset {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export function getStylePrompt(projectId: string): string {
-  assertProjectId(projectId);
-  sqlite.transaction(() => {
-    assertProjectExists(projectId);
-    seedStylePrompt(projectId);
-  })();
-  const row = sqlite.prepare("SELECT content FROM modern_style_prompts WHERE project_id = ?")
-    .get(projectId) as Row | undefined;
-  return row ? String(row.content) : "";
+const STYLE_PRESET_COLUMNS = `id, name, content, created_at AS createdAt, updated_at AS updatedAt`;
+
+function mapStylePreset(row: Row): StylePreset {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    content: String(row.content),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
 }
 
-export function saveStylePrompt(projectId: string, content: string): string {
-  assertProjectId(projectId);
+function loadStylePresetRow(id: string): Row | undefined {
+  return sqlite.prepare(`SELECT ${STYLE_PRESET_COLUMNS} FROM modern_style_presets WHERE id = ?`).get(id) as Row | undefined;
+}
+
+export function listStylePresets(): StylePreset[] {
+  return (sqlite.prepare(`SELECT ${STYLE_PRESET_COLUMNS} FROM modern_style_presets ORDER BY created_at ASC, id ASC`).all() as Row[])
+    .map(mapStylePreset);
+}
+
+export function createStylePreset(input: { name: string; content?: string }): StylePreset {
+  assertText(input.name, "name", 200);
+  const content = input.content === undefined ? "" : input.content;
+  if (typeof content !== "string" || content.length > STYLE_PROMPT_MAX_LENGTH) {
+    throw new Error(`文风提示词超过长度限制（${STYLE_PROMPT_MAX_LENGTH}）`);
+  }
+  const id = newId();
+  const now = isoNow();
+  sqlite.prepare("INSERT INTO modern_style_presets(id, name, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run(id, input.name.trim(), content, now, now);
+  return mapStylePreset(loadStylePresetRow(id)!);
+}
+
+export function updateStylePreset(id: string, input: { name?: string; content?: string }): StylePreset {
+  const row = loadStylePresetRow(id);
+  if (!row) throw new Error("文风预设不存在");
+  const name = input.name === undefined ? String(row.name) : (assertText(input.name, "name", 200), input.name.trim());
+  const content = input.content === undefined ? String(row.content) : input.content;
   if (typeof content !== "string" || content.length > STYLE_PROMPT_MAX_LENGTH) {
     throw new Error(`文风提示词超过长度限制（${STYLE_PROMPT_MAX_LENGTH}）`);
   }
   const now = isoNow();
-  sqlite.prepare(`
-    INSERT INTO modern_style_prompts(project_id, content, created_at, updated_at)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(project_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at
-  `).run(projectId, content.trim(), now, now);
-  return content.trim();
+  sqlite.prepare("UPDATE modern_style_presets SET name = ?, content = ?, updated_at = ? WHERE id = ?")
+    .run(name, content, now, id);
+  return mapStylePreset(loadStylePresetRow(id)!);
 }
 
-/** 组装某角色的提示词块；writer 与 prose_review 会在最前面注入共用的文风提示词（内容为空则不注入）。 */
+export function deleteStylePreset(id: string) {
+  if (!loadStylePresetRow(id)) throw new Error("文风预设不存在");
+  sqlite.transaction(() => {
+    sqlite.prepare("UPDATE modern_project_style_selections SET preset_id = NULL, updated_at = ? WHERE preset_id = ?")
+      .run(isoNow(), id);
+    sqlite.prepare("DELETE FROM modern_style_presets WHERE id = ?").run(id);
+  })();
+}
+
+export function getProjectStylePreset(projectId: string): StylePreset | null {
+  assertProjectId(projectId);
+  sqlite.transaction(() => {
+    assertProjectExists(projectId);
+  })();
+  const selection = sqlite.prepare("SELECT preset_id AS presetId FROM modern_project_style_selections WHERE project_id = ?")
+    .get(projectId) as Row | undefined;
+  if (!selection?.presetId) return null;
+  const preset = loadStylePresetRow(String(selection.presetId));
+  return preset ? mapStylePreset(preset) : null;
+}
+
+export function setProjectStylePreset(projectId: string, presetId: string | null): StylePreset | null {
+  assertProjectId(projectId);
+  return sqlite.transaction(() => {
+    assertProjectExists(projectId);
+    if (presetId !== null && !loadStylePresetRow(presetId)) throw new Error("文风预设不存在");
+    sqlite.prepare(`
+      INSERT INTO modern_project_style_selections(project_id, preset_id, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(project_id) DO UPDATE SET preset_id = excluded.preset_id, updated_at = excluded.updated_at
+    `).run(projectId, presetId, isoNow());
+    return getProjectStylePreset(projectId);
+  })();
+}
+
+/** 组装某角色的提示词块；writer 与 prose_review 会在最前面注入项目当前激活的文风提示词（未选择文风则不注入）。 */
 export function assembleRolePromptBlocks(projectId: string, role: AgentRole): AgentPromptBlock[] {
   const blocks = listAgentPromptBlocks(projectId, role);
   if (!STYLE_PROMPT_ROLES.includes(role as (typeof STYLE_PROMPT_ROLES)[number])) return blocks;
-  const style = getStylePrompt(projectId);
+  const style = getProjectStylePreset(projectId)?.content ?? "";
   if (!style) return blocks;
   return [
     {
@@ -1869,10 +1928,17 @@ export function initModernStore() {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS modern_style_prompts (
-      project_id TEXT PRIMARY KEY REFERENCES modern_projects(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS modern_style_presets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS modern_project_style_selections (
+      project_id TEXT PRIMARY KEY REFERENCES modern_projects(id) ON DELETE CASCADE,
+      preset_id TEXT REFERENCES modern_style_presets(id) ON DELETE SET NULL,
       updated_at TEXT NOT NULL
     );
 
@@ -1958,6 +2024,27 @@ export function initModernStore() {
         WHERE b.project_id = p.project_id AND b.agent_role = p.role AND b.name = ?
       )
   `).run(LEGACY_PROMPT_BLOCK_NAME, LEGACY_PROMPT_BLOCK_NAME);
+
+  // 迁移旧版逐项目文风（modern_style_prompts）到全局文风库 + 项目选择
+  const hasLegacyStyleTable = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'modern_style_prompts'").get();
+  if (hasLegacyStyleTable) {
+    const legacyStyles = sqlite.prepare("SELECT project_id AS projectId, content FROM modern_style_prompts WHERE content <> ''").all() as Row[];
+    if (legacyStyles.length) {
+      const now = isoNow();
+      let defaultPresetId = (sqlite.prepare("SELECT id FROM modern_style_presets WHERE name = '默认文风'").get() as Row | undefined)?.id as string | undefined;
+      if (!defaultPresetId) {
+        defaultPresetId = newId();
+        sqlite.prepare("INSERT INTO modern_style_presets(id, name, content, created_at, updated_at) VALUES (?, '默认文风', ?, ?, ?)")
+          .run(defaultPresetId, String(legacyStyles[0]!.content), now, now);
+      }
+      const upsertSelection = sqlite.prepare(`
+        INSERT INTO modern_project_style_selections(project_id, preset_id, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET preset_id = excluded.preset_id
+      `);
+      for (const row of legacyStyles) upsertSelection.run(String(row.projectId), defaultPresetId, now);
+    }
+    sqlite.prepare("DROP TABLE IF EXISTS modern_style_prompts").run();
+  }
 }
 
 // 与现有 db.ts 一致：模块加载时确保新表存在，函数本身幂等。
