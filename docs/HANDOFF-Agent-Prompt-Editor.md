@@ -13,7 +13,7 @@
 | 用户在前端可编辑每个 Agent 的提示词 | ✅ **已存在**（"Agent 设置"页，`ModernApp.tsx` 的 `AgentsPane`），**不要重建** |
 | R18 破限提示词注入（main/writer/prose_review/logic_review） | ✅ 已完成（代码默认块 + 现有项目 SQLite） |
 | 反 AI 八股条款（对齐 `style-review.ts` 本地规则） | ✅ 已并入 writer 破限块 |
-| **文风独立输入框：正文生成与正文审查共用同一份文风** | ⚠️ **本次交接的核心任务，规格见 §3** |
+| **文风独立输入框：正文生成与正文审查共用同一份文风** | ✅ **已实现**（2026-08-07，见 §3.5；后续增强可选） |
 | writer/审查任务的实际模型执行 | ⏳ 尚未接入（现代纵向切片只跑了主 Agent 聊天） |
 
 ---
@@ -120,6 +120,17 @@ API 链路（`apps/server/src/modern-api.ts` 453-475 行）：
 **与 style_guide 文档的分工**（写进 UI 提示文案，避免用户双处维护）
 - 文风输入框 = 提示词级唯一文风源（文风细节、句式、节奏、R18 场景描写偏好等）
 - `style_guide` 文档 = 资料级硬约束（叙事视角、目标读者等元信息），不再承担文风细节
+
+### 3.5 实现记录（2026-08-07 已完成，供接手方复核）
+
+按 §3.3 规格已落地并通过全部测试，落点如下：
+
+- **数据层**：`modern-store.ts` — `modern_style_prompts` 表（`initModernStore` 内创建）、`getStylePrompt` / `saveStylePrompt`（首次读取自动播种空行，无需迁移）、常量 `STYLE_PROMPT_BLOCK_NAME` / `STYLE_PROMPT_ROLES` / `STYLE_PROMPT_MAX_LENGTH`
+- **运行时注入**：`modern-store.ts` — `assembleRolePromptBlocks(projectId, role)`：writer/prose_review 且文风非空时，在最前面合成 system 块（position -1、createdAt 1970，保证排序最前）；**列表视图不合成**（UI 不会看到重复块）
+- **API**：`modern-api.ts` — `GET/PUT /api/modern/projects/:projectId/style-prompt`，zod 校验（≤8000，中文错误消息）
+- **前端**：`ModernApp.tsx` — `StylePromptBox` 组件（Agent 设置页顶部，textarea + 保存按钮 + 使用者徽标 + 未保存提示）；`modern.css` — `.modern-style-prompt` 系列样式
+- **测试**：`modern-store.test.ts`（注入角色限定、空文风不注入、长度限制）、`modern-api.test.ts`（端点读写 + 超长拒绝），共 44 个测试全绿
+- **注意**：`assembleRolePromptBlocks` 目前没有运行时调用方（writer/审查任务未接入）；任务执行接入时用它组装提示词即可自动获得文风注入。若接入时发现注入顺序需要调整（当前是"文风 → 角色职责 → 其余块"），改 `assembleRolePromptBlocks` 一处即可
 
 ### 3.4 相关既有机制（勿重复实现，注意边界）
 

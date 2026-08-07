@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_ROLES,
   LEGACY_PROMPT_BLOCK_NAME,
+  STYLE_PROMPT_BLOCK_NAME,
   appendMessage,
+  assembleRolePromptBlocks,
   createMemoryEntry,
   createProject,
   createReviewReport,
@@ -16,6 +18,7 @@ import {
   getProject,
   getSkill,
   getSourceFile,
+  getStylePrompt,
   listAgentPromptBlocks,
   listAgentPromptBlocksByProject,
   listMemoryEntries,
@@ -27,6 +30,7 @@ import {
   listTasks,
   promoteSourceAtomically,
   saveAgentPromptBlocks,
+  saveStylePrompt,
   updateMemoryEntry,
   updateReviewReport,
   updateSourceFile,
@@ -388,5 +392,34 @@ describe("modern store", () => {
     });
     expect(blocked.prompt).toBe("");
     expect(blocked.promptBlocks.map((block) => block.name)).toEqual(["上下文 Agent 职责", "上下文职责", "输出要求"]);
+  });
+
+  it("keeps one shared style prompt injected into writer and prose review blocks only", () => {
+    const project = projectId("style-prompt");
+    const other = projectId("style-prompt-other");
+    createProject({ id: project, name: "文风共用" });
+    createProject({ id: other, name: "另一作品" });
+
+    expect(getStylePrompt(project)).toBe("");
+    expect(getStylePrompt(other)).toBe("");
+    saveStylePrompt(project, "冷峻短句，对话克制。");
+    expect(getStylePrompt(project)).toBe("冷峻短句，对话克制。");
+    expect(getStylePrompt(other)).toBe("");
+
+    const writerBlocks = assembleRolePromptBlocks(project, "writer");
+    const reviewBlocks = assembleRolePromptBlocks(project, "prose_review");
+    const mainBlocks = assembleRolePromptBlocks(project, "main");
+    expect(writerBlocks[0]).toMatchObject({ name: STYLE_PROMPT_BLOCK_NAME, role: "system", content: "冷峻短句，对话克制。" });
+    expect(reviewBlocks[0]?.name).toBe(STYLE_PROMPT_BLOCK_NAME);
+    expect(mainBlocks.some((block) => block.name === STYLE_PROMPT_BLOCK_NAME)).toBe(false);
+    expect(writerBlocks[1]?.name).toBe("正文 Agent 职责");
+    expect(reviewBlocks[1]?.name).toBe("正文审查 Agent 职责");
+    // 列表视图不合成文风块，只出现在组装结果中
+    expect(listAgentPromptBlocks(project, "writer").some((block) => block.name === STYLE_PROMPT_BLOCK_NAME)).toBe(false);
+
+    saveStylePrompt(project, "");
+    expect(assembleRolePromptBlocks(project, "writer").some((block) => block.name === STYLE_PROMPT_BLOCK_NAME)).toBe(false);
+
+    expect(() => saveStylePrompt(project, "x".repeat(8_001))).toThrow(/超过长度限制/);
   });
 });

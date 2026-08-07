@@ -30,6 +30,7 @@ import {
   getSession,
   getSkill,
   getSourceFile,
+  getStylePrompt,
   initModernStore,
   listAgentProfiles,
   listAgentPromptBlocks,
@@ -43,6 +44,7 @@ import {
   listTasks,
   promoteSourceAtomically,
   saveAgentPromptBlocks,
+  saveStylePrompt,
   updateSourceFile,
   updateMemoryEntry,
   updateReviewReport,
@@ -114,6 +116,7 @@ const agentSchema = z.object({
   promptBlocks: z.array(promptBlockSchema).max(200).optional(),
   modelProfile: z.string().max(120).default(""),
 });
+const stylePromptSchema = z.object({ content: z.string().max(8_000, "文风提示词超过长度限制（8000）") });
 const modernModelConfigSchema = z.object({
   name: z.string().trim().min(1).max(200),
   provider: z.enum(["openai", "anthropic", "openai-compatible"]),
@@ -472,6 +475,18 @@ export async function registerModernRoutes(app: FastifyInstance) {
     ensureProject(projectId);
     const body = z.object({ blocks: z.array(promptBlockSchema).max(200) }).parse(request.body);
     return saveAgentPromptBlocks(projectId, request.params.role, body);
+  });
+
+  app.get<{ Params: { projectId: string } }>("/api/modern/projects/:projectId/style-prompt", async (request) => {
+    const projectId = projectParams(request.params.projectId);
+    ensureProject(projectId);
+    return { content: getStylePrompt(projectId) };
+  });
+  app.put<{ Params: { projectId: string } }>("/api/modern/projects/:projectId/style-prompt", async (request) => {
+    const projectId = projectParams(request.params.projectId);
+    ensureProject(projectId);
+    const body = stylePromptSchema.parse(request.body);
+    return { content: saveStylePrompt(projectId, body.content) };
   });
 
   app.get("/api/modern/models", async () => listModernModels());

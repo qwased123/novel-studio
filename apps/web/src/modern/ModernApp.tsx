@@ -150,6 +150,39 @@ function TasksPane({ projectId }: { projectId: string }) {
   return <div className="modern-pane"><header className="modern-pane-head"><div><span className="modern-eyebrow">RUN LOG</span><h3>任务运行</h3><p>主 Agent拆出的任务、上下文选择和优先级结果都会留在这里。</p></div><History size={18} /></header><div className="modern-task-table"><div className="modern-task-row head"><span>Agent</span><span>任务</span><span>状态</span><span>时间</span></div>{tasks.data?.map((task) => <div className="modern-task-row" key={task.id}><span><Bot size={14} />{agentLabels[task.targetAgent] ?? task.targetAgent}</span><span>{task.type}</span><span><i className={`modern-status-dot ${task.status}`} />{task.status}</span><time>{new Date(task.createdAt).toLocaleTimeString("zh-CN")}</time></div>)}</div></div>;
 }
 
+function StylePromptBox({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const style = useQuery({ queryKey: ["modern-style-prompt", projectId], queryFn: () => api<{ content: string }>(`/api/modern/projects/${projectId}/style-prompt`) });
+  const [text, setText] = useState("");
+  useEffect(() => { if (style.data) setText(style.data.content); }, [style.data]);
+  const save = useMutation({
+    mutationFn: () => api<{ content: string }>(`/api/modern/projects/${projectId}/style-prompt`, { method: "PUT", body: JSON.stringify({ content: text }) }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ["modern-style-prompt", projectId] }); },
+  });
+  const dirty = style.data !== undefined && text !== style.data.content;
+  return (
+    <section className="modern-style-prompt">
+      <header className="modern-pane-head">
+        <div>
+          <span className="modern-eyebrow">SHARED STYLE</span>
+          <h3>文风提示词</h3>
+          <p>正文生成与正文审查共用的唯一文风来源：编辑一次，两个 Agent 运行时注入同一份，不会出现生成与审查文风不一致。</p>
+        </div>
+        <div className="modern-style-users"><SquarePen size={14} />正文 Agent · 正文审查 Agent</div>
+      </header>
+      <label className="modern-field">
+        <span>文风描述（含 R18 场景的描写偏好）</span>
+        <textarea rows={8} value={text} onChange={(event) => setText(event.target.value)} placeholder={"叙事视角：\n目标读者：\n文风要求：\n（例：冷峻短句节奏；对话克制；性爱场景直白细腻、注重感官与心理层次……）"} />
+      </label>
+      <footer className="modern-style-footer">
+        <span>{dirty ? "有未保存的修改" : "已同步"} · {text.length.toLocaleString()} / 8,000 字</span>
+        <button className="modern-button solid" disabled={save.isPending || !dirty} onClick={() => save.mutate()}>{save.isPending ? "保存中" : "保存文风"}</button>
+      </footer>
+      {save.error && <div className="modern-alert error">{save.error.message}</div>}
+    </section>
+  );
+}
+
 function AgentsPane({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient();
   const models = useQuery({ queryKey: ["modern-models"], queryFn: () => api<ModelConfig[]>("/api/modern/models") });
@@ -267,6 +300,7 @@ function AgentsPane({ projectId }: { projectId: string }) {
         </div>
         <Bot size={19} />
       </header>
+      <StylePromptBox projectId={projectId} />
       <div className="modern-agent-list">
         {Object.keys(agentLabels).map((role) => {
           const draft = drafts[role] ?? { enabled: true, modelProfile: "", promptBlocks: [] as PromptBlock[] };

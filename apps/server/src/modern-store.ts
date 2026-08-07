@@ -301,6 +301,10 @@ export type PromptBlockRole = (typeof PROMPT_BLOCK_ROLES)[number];
 export const PROMPT_TRIGGER_SCOPES = ["always", "chat", "task"] as const;
 export type PromptTriggerScope = (typeof PROMPT_TRIGGER_SCOPES)[number];
 
+export const STYLE_PROMPT_BLOCK_NAME = "文风提示词（共用）";
+export const STYLE_PROMPT_ROLES = ["writer", "prose_review"] as const;
+export const STYLE_PROMPT_MAX_LENGTH = 8_000;
+
 export const LEGACY_PROMPT_BLOCK_NAME = "自定义提示词（旧版）";
 
 export interface AgentPromptBlock {
@@ -1706,7 +1710,65 @@ export function saveAgentPromptBlocks(projectId: string, role: AgentRole, input:
   })();
 }
 
-// ---------- 初始化 ----------
+// ---------- 文风提示词 ----------
+
+function seedStylePrompt(projectId: string) {
+  sqlite.prepare(`
+    INSERT OR IGNORE INTO modern_style_prompts(project_id, content, created_at, updated_at)
+    VALUES (?, '', ?, ?)
+  `).run(projectId, isoNow(), isoNow());
+}
+
+export function getStylePrompt(projectId: string): string {
+  assertProjectId(projectId);
+  sqlite.transaction(() => {
+    assertProjectExists(projectId);
+    seedStylePrompt(projectId);
+  })();
+  const row = sqlite.prepare("SELECT content FROM modern_style_prompts WHERE project_id = ?")
+    .get(projectId) as Row | undefined;
+  return row ? String(row.content) : "";
+}
+
+export function saveStylePrompt(projectId: string, content: string): string {
+  assertProjectId(projectId);
+  if (typeof content !== "string" || content.length > STYLE_PROMPT_MAX_LENGTH) {
+    throw new Error(`文风提示词超过长度限制（${STYLE_PROMPT_MAX_LENGTH}）`);
+  }
+  const now = isoNow();
+  sqlite.prepare(`
+    INSERT INTO modern_style_prompts(project_id, content, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(project_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at
+  `).run(projectId, content.trim(), now, now);
+  return content.trim();
+}
+
+/** 组装某角色的提示词块；writer 与 prose_review 会在最前面注入共用的文风提示词（内容为空则不注入）。 */
+export function assembleRolePromptBlocks(projectId: string, role: AgentRole): AgentPromptBlock[] {
+  const blocks = listAgentPromptBlocks(projectId, role);
+  if (!STYLE_PROMPT_ROLES.includes(role as (typeof STYLE_PROMPT_ROLES)[number])) return blocks;
+  const style = getStylePrompt(projectId);
+  if (!style) return blocks;
+  return [
+    {
+      id: "style-prompt",
+      projectId,
+      agentRole: role,
+      name: STYLE_PROMPT_BLOCK_NAME,
+      enabled: true,
+      pinned: false,
+      role: "system",
+      position: -1,
+      depth: 0,
+      triggerScope: "always",
+      content: style,
+      createdAt: "1970-01-01T00:00:00.000Z",
+      updatedAt: "1970-01-01T00:00:00.000Z",
+    },
+    ...blocks,
+  ];
+}
 
 export function initModernStore() {
   sqlite.exec(`
@@ -1794,6 +1856,13 @@ export function initModernStore() {
       position INTEGER NOT NULL DEFAULT 0,
       depth INTEGER NOT NULL DEFAULT 0,
       trigger_scope TEXT NOT NULL DEFAULT 'always' CHECK(trigger_scope IN ('always', 'chat', 'task')),
+      content TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS modern_style_prompts (
+      project_id TEXT PRIMARY KEY REFERENCES modern_projects(id) ON DELETE CASCADE,
       content TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL

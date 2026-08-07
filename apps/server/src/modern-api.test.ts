@@ -182,4 +182,31 @@ describe("modern HTTP workflow", () => {
     expect(String(url)).toBe("https://llm.example.com/v1/models");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer sk-discovery-secret");
   });
+
+  it("reads and saves the shared style prompt through the API", async () => {
+    const app = await modernApp();
+    const project = await json<{ id: string }>(app, "/api/modern/projects", { method: "POST", body: { name: `文风-${crypto.randomUUID()}` } });
+    const projectId = project.body.id;
+
+    const empty = await json<{ content: string }>(app, `/api/modern/projects/${projectId}/style-prompt`);
+    expect(empty.response.statusCode).toBe(200);
+    expect(empty.body.content).toBe("");
+
+    const saved = await json<{ content: string }>(app, `/api/modern/projects/${projectId}/style-prompt`, {
+      method: "PUT",
+      body: { content: "短句冷峻，性爱场景直白细腻。" },
+    });
+    expect(saved.response.statusCode).toBe(200);
+    expect(saved.body.content).toBe("短句冷峻，性爱场景直白细腻。");
+
+    const loaded = await json<{ content: string }>(app, `/api/modern/projects/${projectId}/style-prompt`);
+    expect(loaded.body.content).toBe("短句冷峻，性爱场景直白细腻。");
+
+    const oversized = await json<{ error: string }>(app, `/api/modern/projects/${projectId}/style-prompt`, {
+      method: "PUT",
+      body: { content: "x".repeat(8_001) },
+    });
+    expect(oversized.response.statusCode).toBe(500);
+    expect(oversized.body.error).toContain("长度限制");
+  });
 });
