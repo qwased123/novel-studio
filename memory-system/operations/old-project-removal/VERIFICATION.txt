@@ -1,0 +1,82 @@
+OLD PROJECT REMOVAL VERIFICATION
+================================
+
+Changed branch: main (ahead of origin/main by 4 pre-existing commits)
+Changed field: D:\book workspace root entries
+Restored behavior/status: the old project can be restored byte-for-byte from the external rollback directory; the active workspace remains reduced to the new memory system.
+
+Four operation artifacts
+------------------------
+MODIFIED_FILE: D:\book\memory-system\operations\old-project-removal\MODIFIED_FILE.txt
+DIFF_FILE: D:\book\memory-system\operations\old-project-removal\DIFF_FILE.txt
+VERIFICATION: D:\book\memory-system\operations\old-project-removal\VERIFICATION.txt
+ROLLBACK: D:\book\memory-system\operations\old-project-removal\ROLLBACK.sh
+
+Preserved original
+------------------
+Rollback directory: D:\book-old-project-rollback-20260820T1900
+Hash manifest: D:\book-old-project-rollback-20260820T1900\ORIGINAL_SHA256.csv
+Original files hashed: 18483
+Moved root objects: 20
+
+BASELINE
+--------
+Command: npm run typecheck
+Working input: D:\book\memory-system before old-root removal, after making the new project self-contained
+Literal output/result:
+> novel-memory-system@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+PRE_DELETE_TYPECHECK_EXIT=0
+Exit status: 0
+
+MODIFIED
+--------
+Command: npm run typecheck
+Working input: D:\book\memory-system after old-root removal
+Literal output/result:
+> novel-memory-system@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+POST_DELETE_TYPECHECK_EXIT=0
+Exit status: 0
+
+Command: npm test -- --passWithNoTests
+Working input: D:\book\memory-system after old-root removal
+Literal output/result:
+> novel-memory-system@0.1.0 test
+> vitest run --passWithNoTests
+
+RUN  v3.2.7 D:/book/memory-system
+No test files found, exiting with code 0
+POST_DELETE_TEST_EXIT=0
+Exit status: 0
+
+Workspace state command: Get-ChildItem -LiteralPath 'D:\book' -Force
+Literal output/result:
+WORKSPACE_ENTRIES=.git,memory-system,.gitignore
+OLD_APPS_EXISTS=False
+OLD_V2_EXISTS=False
+OLD_DATA_EXISTS=False
+NEW_SYSTEM_EXISTS=True
+BACKUP_MANIFEST_ROWS=18483
+Exit status: 0
+
+ROLLBACK
+--------
+Command: ScriptBlock::Create(Get-Content -Raw ROLLBACK.sh), invoked with -Destination D:\book-rollback-test-20260820T1900
+Input: D:\book-old-project-rollback-20260820T1900 plus ORIGINAL_SHA256.csv
+Literal output/result:
+RESTORED_FROM=D:\book-old-project-rollback-20260820T1900
+RESTORED_TO=D:\book-rollback-test-20260820T1900
+ROLLBACK_EXIT=0
+ROLLBACK_TEST_EXPECTED=18483
+ROLLBACK_TEST_MISSING=0
+ROLLBACK_TEST_HASH_MISMATCH=0
+ROLLBACK_TEST_EXIT=0
+ROLLBACK_TEST_CLEANED=True
+Exit status: 0
+
+Final restored behavior/status
+------------------------------
+The rollback test recreated every manifested old-project file with zero missing files and zero SHA-256 mismatches. The test copy was then removed. D:\book still contains only .git, .gitignore, and memory-system; apps, v2, and data remain absent.

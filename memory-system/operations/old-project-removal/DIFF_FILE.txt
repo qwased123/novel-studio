@@ -1,0 +1,27 @@
+Removed from D:\book and preserved in D:\book-old-project-rollback-20260820T1900:
+
+.reasonix
+.zcode
+apps
+data
+data-v2
+docs
+e2e
+node_modules
+packages
+playwright-report
+test-results
+v2
+.codex-web-dev.stderr.log
+.codex-web-dev.stdout.log
+package-lock.json
+package.json
+playwright.config.ts
+README.md
+reasonix.toml
+tsconfig.base.json
+
+Retained and changed for the new project:
+- D:\book\.gitignore now ignores only memory-system artifacts.
+- D:\book\memory-system\tsconfig.json is self-contained.
+- D:\book\memory-system\package-lock.json and node_modules were installed locally.

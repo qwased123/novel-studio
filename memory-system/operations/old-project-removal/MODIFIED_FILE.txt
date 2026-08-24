@@ -1,0 +1,8 @@
+Workspace state after old-project removal
+
+Retained root entries:
+- .git
+- .gitignore
+- memory-system
+
+The old project is absent from D:\book. The new memory system is self-contained.
