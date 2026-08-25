@@ -10,6 +10,10 @@
     "build": "tsc -p tsconfig.json && vite build",
     "check": "npm run typecheck && npm test && npm run build",
     "start": "node dist/src/main.js",
+    "start:mcp:retrieval": "node dist/src/mcp-retrieval.js",
+    "dev:mcp:retrieval": "tsx src/mcp-retrieval.ts",
+    "seed:retrieval-demo": "tsx src/seed-retrieval-demo.ts",
+    "verify:mcp:stdio": "tsx src/mcp-retrieval-stdio-check.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "benchmark": "tsx src/benchmark-cli.ts"
@@ -17,6 +21,7 @@
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@fastify/static": "^10.1.2",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@vitejs/plugin-react": "^5.0.2",
     "better-sqlite3": "^12.2.0",
     "fastify": "^5.6.0",

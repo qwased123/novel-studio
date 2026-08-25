@@ -1,0 +1,16 @@
+# Retrieval-only validation overlay for Novel Memory System.
+# Build and seed memory-system before booting DSH with this patch.
+- insert:
+    - id: novel-memory-retrieval
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: novel-memory
+        transport: stdio
+        command: !!js process.execPath
+        args:
+          - !!js "(process.env.NOVEL_MEMORY_ROOT ?? 'D:/book/memory-system') + '/dist/src/mcp-retrieval.js'"
+        env:
+          MEMORY_DATA_DIR: !!js "process.env.NOVEL_MEMORY_DATA_DIR ?? ((process.env.NOVEL_MEMORY_ROOT ?? 'D:/book/memory-system') + '/memory-system-data')"
+        cwd: !!js process.env.NOVEL_MEMORY_ROOT ?? 'D:/book/memory-system'
+        toolCallTimeoutMs: 60000
+        failOnStartupError: true
